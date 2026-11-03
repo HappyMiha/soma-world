@@ -901,14 +901,6 @@ void game::init_autosave()
 
 void game::quicksave()
 {
-    // Named MP callout (rule 4): on a --server nobody plays the local avatar (its
-    // moves are zeroed every turn), so the check below would skip every save, and
-    // there is no screen for the popup.  cata_mp writes the world headless instead,
-    // then the autosave clock restarts as after any quicksave.
-    if( cata_mp::mp_server_quicksave() ) {
-        init_autosave();
-        return;
-    }
     //Don't autosave if the player hasn't done anything since the last autosave/quicksave,
     if( !moves_since_last_save && !world_generator->active_world->world_saves.empty() ) {
         return;
@@ -961,6 +953,15 @@ void game::autosave()
 {
     //Don't autosave if the min-autosave interval has not passed since the last autosave/quicksave.
     if( std::time( nullptr ) < last_save_timestamp + 60 * get_option<int>( "AUTOSAVE_MINUTES" ) ) {
+        return;
+    }
+    // Named MP callout (rule 4): on a --server nobody plays the local avatar (its
+    // moves are zeroed every turn), so quicksave() would skip every save, and there
+    // is no screen for its popup.  cata_mp writes the world headless instead; the
+    // autosave clock then restarts as after any quicksave.
+    if( cata_mp::is_server_mode() ) {
+        cata_mp::mp_server_save_world();
+        init_autosave();
         return;
     }
     quicksave();    //Driving checks are handled by quicksave()

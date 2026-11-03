@@ -11,11 +11,8 @@
 namespace cata_mp
 {
 
-bool mp_server_quicksave()
+bool mp_server_save_world()
 {
-    if( !is_server_mode() ) {
-        return false;
-    }
     mp_log( "[cdda-mp] SERVER-SAVE: saving the world, turn=" +
             std::to_string( to_turn<int>( calendar::turn ) ) );
     const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
@@ -40,7 +37,7 @@ bool mp_server_quicksave()
                 "ms" + ( error.empty() ? std::string() : " (" + error + ")" ) +
                 " — the server keeps running.  See config/debug.log." );
     }
-    return true;
+    return saved;
 }
 
 } // namespace cata_mp
