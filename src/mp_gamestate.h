@@ -750,10 +750,11 @@ void mp_notify_session_ending();
 // up.  Looks at the disk at most twice a second.  Always false outside --server.
 bool mp_server_stop_requested();
 
-// Server side of that stop: game::save(), then mp_notify_session_ending() (the
-// partner sees a graceful end, the listen server is shut down), then QUIT_SAVED
-// so the next do_turn() ends the game.  If the save fails, the server keeps
-// running and a new server.stop retries.  Returns whether the world was saved.
+// Server side of that stop: mp_server_save_world() (game::save(), guarded and
+// logged), then mp_notify_session_ending() (the partner sees a graceful end, the
+// listen server is shut down), then QUIT_SAVED so the next do_turn() ends the
+// game.  If the save fails, the server keeps running and a new server.stop
+// retries.  Returns whether the world was saved.
 bool mp_server_save_for_stop();
 
 // Co-op save handshake.  Call immediately after the SP quicksave() runs: the
