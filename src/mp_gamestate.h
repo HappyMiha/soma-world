@@ -738,9 +738,23 @@ void notify_client_host_died();
 // MP session is active — broadcasts a session_ending packet to the partner so
 // they see a graceful "your partner is leaving — game saved" message and
 // (host only) trigger an auto-save, instead of a raw TCP disconnect.  No-op
-// outside MP modes.  Includes a brief sleep so the TCP write completes
-// before the caller's socket teardown.
+// outside MP modes; --server counts as the host side here (its stop calls this).
+// Includes a brief sleep so the TCP write completes before the caller's socket
+// teardown.
 void mp_notify_session_ending();
+
+// Dedicated server (--server) lossless stop.  A file named server.stop in the
+// world's save folder asks the server to save the world and exit; the server
+// deletes the file when it sees it.  Polled by the --server loop in main.cpp and
+// by wait_for_client_action(), so a player who is not acting can't hold the stop
+// up.  Looks at the disk at most twice a second.  Always false outside --server.
+bool mp_server_stop_requested();
+
+// Server side of that stop: game::save(), then mp_notify_session_ending() (the
+// partner sees a graceful end, the listen server is shut down), then QUIT_SAVED
+// so the next do_turn() ends the game.  If the save fails, the server keeps
+// running and a new server.stop retries.  Returns whether the world was saved.
+bool mp_server_save_for_stop();
 
 // Co-op save handshake.  Call immediately after the SP quicksave() runs: the
 // host confirms the authoritative save; the client also asks the host to save

@@ -66,9 +66,10 @@ has checked a connection from another network yet.
 
 The server runs on the owner's PC. The script
 [`tools/soma-world/start-server.ps1`](tools/soma-world/start-server.ps1) starts it
-with the right flags, restarts it after it exits (`-Restart`) and writes logs next
-to the game build. A password, if one is needed, comes from the
-`SOMA_WORLD_PASSWORD` environment variable and never enters Git.
+with the right flags, restarts it after a crash (`-Restart`), stops it without
+losses (`-Stop`, see below) and writes logs next to the game build. A password, if
+one is needed, comes from the `SOMA_WORLD_PASSWORD` environment variable and never
+enters Git.
 
 The server loads only a world that already holds a saved character. For world
 `soma` that character was created once in the game, with these settings:
@@ -79,7 +80,22 @@ The server loads only a world that already holds a saved character. For world
 | `SPAWN_DENSITY` | `0.00` | no monster waves |
 | anchor traits | Debug Invincibility, Life Support, Prevent Death, HVAC | the anchor never moves: without these traits it dies of thirst and the server stops |
 
-The server has no lossless stop: the game relies on its autosave every 5 minutes.
+### Stopping without losses
+
+A server built from this repository's code saves the world and exits on request.
+Create an empty file `server.stop` in the world's save folder, for world `soma` that
+is `save\soma\server.stop` next to the game build. The server looks for the file
+twice a second, deletes it, saves the world, sends connected clients the co-op
+"session ending" notice and exits with code 0. If the save fails, the server keeps
+running and writes the reason to `config\debug.log`; a new `server.stop` tries again.
+
+`.\start-server.ps1 -Stop` creates the file for you and waits until the server exits.
+A server started with `-Restart` is not started again after a clean exit like this.
+
+The running server is still on build `7cc9d26c8e`, which has no such stop: it can only
+be killed, and everything since the world was last saved is lost. The game's
+autosave does not help in `--server` mode: it skips the save when the character has
+not moved since the last save, and the anchor never moves.
 
 ## Origin and license
 
