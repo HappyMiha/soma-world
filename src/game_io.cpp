@@ -68,6 +68,7 @@
 #include "messages.h"
 #include "mod_manager.h"
 #include "mp_gamestate.h"
+#include "mp_server_save.h"
 #include "options.h"
 #include "output.h"
 #include "overmapbuffer.h"
@@ -900,6 +901,14 @@ void game::init_autosave()
 
 void game::quicksave()
 {
+    // Named MP callout (rule 4): on a --server nobody plays the local avatar (its
+    // moves are zeroed every turn), so the check below would skip every save, and
+    // there is no screen for the popup.  cata_mp writes the world headless instead,
+    // then the autosave clock restarts as after any quicksave.
+    if( cata_mp::mp_server_quicksave() ) {
+        init_autosave();
+        return;
+    }
     //Don't autosave if the player hasn't done anything since the last autosave/quicksave,
     if( !moves_since_last_save && !world_generator->active_world->world_saves.empty() ) {
         return;
