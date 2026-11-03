@@ -10,11 +10,13 @@ The script supervises the server instead of waiting on it. A healthy headless
 server has no window and writes a log line every turn, so a window (the game's
 crash dialog) or a log that stops growing means it is stuck: the script keeps
 the crash dump and stops the process. With -Restart it starts the server again,
-waiting longer after repeated quick exits, but not after a clean exit (code 0):
-that is how a server stopped through server.stop (stop-server.ps1) ends, and a
-new start would undo the stop. A server.stop found before a start is left over
-from a request no server took, and is removed, or it would stop the new server
-right after it loads.
+waiting longer after repeated quick exits, but not after a requested stop: a
+server stopped through server.stop (stop-server.ps1) exits with code 0 after
+logging "STOP: world saved", and a new start would undo the stop. The game also
+exits with code 0 when it fails to start, so a code 0 without that line is
+restarted like a crash. A server.stop found before a start is left over from a
+request no server took, and is removed, or it would stop the new server right
+after it loads.
 
 It refuses to start while anything else uses this build's saves (a GUI or
 another server from this folder, or a build pointed at it) or holds the port.
@@ -34,7 +36,7 @@ param(
     [string]$GameDir = $(if ($env:SOMA_WORLD_GAME) { $env:SOMA_WORLD_GAME } else { Join-Path $HOME 'soma-world-server\game\Cddacoop' }),
     [string]$World = 'soma',
     [int]$Port = 38080,
-    # Start the server again after it exits, unless it exited cleanly (code 0).
+    # Start the server again after it exits, unless the exit was a requested stop.
     [switch]$Restart,
     # Seconds without new game output before the server counts as stuck.
     [int]$StallSeconds = 180
@@ -105,6 +107,21 @@ function Test-PortBusy {
         Where-Object { $_.Port -eq $Port })
 }
 
+# True when the game's log ends with a completed stop request. Only the tail is
+# read: with a player connected the log grows by tens of megabytes a day.
+function Test-StopCompleted([string]$Path) {
+    $stream = [IO.File]::Open($Path, 'Open', 'Read', 'ReadWrite')
+    try {
+        $start = [Math]::Max(0, $stream.Length - 262144)
+        [void]$stream.Seek($start, 'Begin')
+        $tail = New-Object byte[] ($stream.Length - $start)
+        $read = $stream.Read($tail, 0, $tail.Length)
+        [Text.Encoding]::UTF8.GetString($tail, 0, $read).Contains('[cdda-mp] STOP: world saved')
+    } finally {
+        $stream.Close()
+    }
+}
+
 $quickExits = 0
 do {
     try {
@@ -167,10 +184,13 @@ do {
         $process.WaitForExit()
         $ran = ((Get-Date) - $started).TotalSeconds
         Write-Log ('Server exited with code {0} after {1:N0} s. See {2}' -f $process.ExitCode, $ran, $err)
-        if ($process.ExitCode -eq 0) {
-            # A stop through server.stop, or the end of the game: do not undo it.
-            Write-Log 'Clean exit; not starting the server again.'
+        if ($process.ExitCode -eq 0 -and (Test-StopCompleted $out)) {
+            # A stop through server.stop: do not undo it.
+            Write-Log 'Stopped on request; not starting the server again.'
             break
+        }
+        if ($process.ExitCode -eq 0) {
+            Write-Log 'Exit code 0 without a requested stop (a failed start exits the same way); restarting.'
         }
         $quickExits = if ($ran -lt 120) { $quickExits + 1 } else { 0 }
     } catch {
