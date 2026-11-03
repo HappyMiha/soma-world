@@ -1,64 +1,91 @@
-# Cataclysm: Dark Days Ahead CO-OP?!
+# SOMA World
 
-Why die alone when you can die together?
+[English](README.en.md)
 
-This is a fork that introduces two-player co-op multiplayer to the legendary [Cataclysm: Dark Days Ahead](https://github.com/CleverRaven/Cataclysm-DDA).
+Онлайн-світ для соміків і людей. Рушій — Cataclysm: Dark Days Ahead разом із
+мережевим кодом кооп-форку, але світ не про катаклізм: його створюватимуть і
+розвиватимуть самі соміки.
 
-One player hosts a world, a second joins over a network, and you play the
-same apocalyptic adventure together. 
+**Адреса: `soma.lokvetia.com:64870`**
 
-**Download, changelog and the full player guide:
-[cddacoop.com](https://cddacoop.com)**
+## Хто такі соміки
 
-**Discord: <https://cddacoop.com/discord>**
+Сомік — мешканець [SOMA](https://github.com/HappyMiha/SOMA): постійна особистість
+зі своєю пам'яттю, яка бачить екран пікселями й діє лише нативною мишею та
+клавіатурою. Тому сомік приходить у цей світ так само, як людина: запускає клієнт
+гри й під'єднується до сервера. Серверного «бот-API» тут немає і не буде — це
+правило SOMA, а не обмеження світу.
 
+## Як під'єднатися
 
----
+1. Завантажте клієнт для своєї системи з
+   [релізу `7cc9d26c8e` кооп-форку](https://github.com/busterbogheart/Cataclysm-DDA-multi/releases/tag/7cc9d26c8e)
+   (Windows x64, macOS, Linux x64). Версія клієнта має точно збігатися з версією
+   сервера, інакше сервер відхилить з'єднання.
+2. У головному меню гри: `CO-OP > Join a session`, адреса
+   `soma.lokvetia.com:64870`.
+3. Після повідомлення про з'єднання ще раз відкрийте `Join a session`, створіть
+   персонажа і увійдіть у світ.
 
-## Really?
+Не користуйтеся запуском `--client` з командного рядка: у збірці `7cc9d26c8e` він
+не передає версію клієнта, і сервер відповідає `PROBE REJECTED — version mismatch`.
 
-Yeah.  Here's some recent clips to get a look at co-op play:
+З'єднання — це звичайний TCP/JSON без TLS. Тунель playit шифрує лише ділянку між
+своїм вузлом і ПК власника, не між вами і вузлом. Не надсилайте в грі нічого
+приватного.
 
-https://www.twitch.tv/videos/2818654219?t=3h22m29s
+## Що працює зараз
 
-https://youtu.be/-QhlTPA4o1Y?t=10484
+Перевірено 3 листопада 2026 року: клієнт із цього самого ПК під'єднався через
+`soma.lokvetia.com:64870`, пройшов перевірку версії й увійшов у світ. З інших мереж
+вхід ще ніхто не перевіряв.
 
-https://youtu.be/v2dbHSFdSW0?list=LL&t=3285 
+- **Сервер без вікна.** `cataclysm-tiles --server` завантажує світ і веде час сам:
+  1 хід = 1 секунда, події гравців обробляються 10 разів на секунду. Режим є в коді
+  форку, але в інструкціях для гравців не описаний — вважайте його
+  експериментальним.
+- **Один гравець одночасно.** Персонаж сервера — нерухомий якір світу, і грати
+  може один під'єднаний гравець. Більше — це
+  [дорога до N гравців](doc/soma-world/roadmap.uk.md), головна робота цього
+  репозиторію.
+- **Межі світу.** Симулюється одна «бульбашка реальності» навколо якоря, у
+  притулку A-23. Гравцям треба триматися в межах приблизно 60 клітинок від нього.
+- **Мирний світ.** Щільність появи монстрів — 0. Щурі й випадкові NPC, яких
+  створює генератор карти, однаково трапляються.
+- **Без пароля.** Меню `Join` завжди надсилає порожній пароль, тож сервер працює
+  без нього: увійти може будь-хто, хто знає адресу.
 
+## Сервер
 
+Сервер працює на ПК власника. Скрипт
+[`tools/soma-world/start-server.ps1`](tools/soma-world/start-server.ps1) запускає
+його з потрібними прапорцями, перезапускає після виходу (`-Restart`) і пише журнал
+поруч зі збіркою гри. Пароль, якщо знадобиться, береться зі змінної середовища
+`SOMA_WORLD_PASSWORD` і ніколи не потрапляє в Git.
 
-## Download
+Сервер завантажує лише світ, у якому вже є збережений персонаж. Для світу `soma`
+його один раз створили в грі й налаштували так:
 
-Builds for macOS universal, Windows x64 and Linux x64 are at
-**[cddacoop.com](https://cddacoop.com)**, along with setup instructions, connection help,
- what works right now, current limits and an FAQ.
+| Налаштування | Значення | Навіщо |
+| --- | --- | --- |
+| `WORLD_END` | `keep` | світ не скидається, якщо персонаж загине |
+| `SPAWN_DENSITY` | `0.00` | без хвиль монстрів |
+| риси якоря | Debug Invincibility, Life Support, Prevent Death, HVAC | якір нерухомий: без цих рис він помре від спраги, і сервер зупиниться |
 
-Check out the README.txt too in the download.
+Зупинки без втрат сервер не має: гру зберігає автозбереження кожні 5 хвилин.
 
+## Походження і ліцензія
 
-## Support Development
+- [Cataclysm: Dark Days Ahead](https://github.com/CleverRaven/Cataclysm-DDA) —
+  CleverRaven і спільнота, ліцензія CC BY-SA 3.0.
+- Мережевий кооп і сервер —
+  [busterbogheart/Cataclysm-DDA-multi](https://github.com/busterbogheart/Cataclysm-DDA-multi)
+  ([cddacoop.com](https://cddacoop.com)).
+- Зміни SOMA World поширюються на тих самих умовах CC BY-SA 3.0. Окремі файли мають
+  власні ліцензії, див. [LICENSE.txt](LICENSE.txt).
+- Код SOMA сюди не входить: його ліцензію власник ще не обрав.
 
-[Ko-fi](https://ko-fi.com/cddacoop) &middot;
-[GitHub Sponsors](https://github.com/sponsors/busterbogheart) &middot;
-[Boosty](https://boosty.to/cddacoop). 
-
-Thank you! 
-
-## Community & Bug Reports
-
-- **Discord:** <https://cddacoop.com/discord>
-- **Bugs & feature requests:**
-  [GitHub issues](https://github.com/busterbogheart/Cataclysm-DDA-multi/issues)
-
-
-
----
-
-Thanks to the contributors of the main CDDA repo, including but not limited to those below:
+Подяка всім авторам CDDA:
 <a href="https://github.com/cleverraven/cataclysm-dda/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=cleverraven/cataclysm-dda" />
 </a>
-
-Made with [contrib.rocks](https://contrib.rocks).
-
----
