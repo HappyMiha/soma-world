@@ -27,6 +27,9 @@ the way, and the order in which to remove it. File references match the fork at
 
 ### 1. Small fixes
 
+**Done:** build `9f50a6140a` (PRs #1, #2, #4) runs on the server since 4 November
+2026. What follows is what was fixed.
+
 - **Version in `--client`.** `src/main.cpp` calls `cata_mp::client_connect(...)`
   from the command line without a version, and the server rejects that client. It
   must pass `getVersionString()`. Password joins then work, and the server can be

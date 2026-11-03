@@ -19,23 +19,18 @@ limit of this world.
 
 ## How to connect
 
-1. Download the client for your system from
-   [co-op fork release `7cc9d26c8e`](https://github.com/busterbogheart/Cataclysm-DDA-multi/releases/tag/7cc9d26c8e)
-   (Windows x64, macOS, Linux x64). The client version must match the server
-   exactly, or the server refuses the connection.
+1. Download the client from
+   [SOMA World release `9f50a6140a`](https://github.com/HappyMiha/soma-world/releases/tag/soma-9f50a6140a)
+   (Windows x64 only for now) and unpack it. The client version must match the
+   server exactly, or the server refuses the connection.
 2. In the game's main menu: `CO-OP > Join a session`, address
    `soma.lokvetia.com:64870`.
 3. After the connection message, open `Join a session` again, create a character
    and enter the world.
 
-Do not start build `7cc9d26c8e` with `--client` on the command line: it does not
-send the client version that way, and the server answers
-`PROBE REJECTED — version mismatch`. This repository's code fixes that (stage 1 of
-the [road to N players](doc/soma-world/roadmap.en.md)), but the fix helps only once
-the server and every client run the same build made from this code, and the server
-still runs `7cc9d26c8e`. With such a build,
-`--client <address:port> --password <password>` is also the way into a server that
-has a password: the `Join` menu has no password field.
+The command line works too: `--client soma.lokvetia.com:64870`. The same, with
+`--password <password>`, is the way into a server that has a password: the `Join`
+menu has no password field.
 
 The connection is plain TCP/JSON without TLS. The playit tunnel encrypts only the
 leg between its edge and the owner's PC, not between you and the edge. Do not send
@@ -43,11 +38,12 @@ anything private in the game.
 
 ## What works now
 
-Checked on 3 November 2026: a client on the same PC connected through
-`soma.lokvetia.com:64870`, passed the version check and entered the world. The
-same day the server moved to autostart; after the move only a TCP connection
-through the public address was checked, not a full game join. Nobody has checked a
-connection from another network yet.
+Checked on 4 November 2026 with build `9f50a6140a`: a scripted client passed the
+version check through `soma.lokvetia.com:64870`, entered the world, did nothing for
+90 seconds (the server did not crash), asked for a save and left; the world was
+written to disk. Joining with this build's GUI client, and from another network,
+has not been checked yet. The day before, a GUI client of the previous build,
+`7cc9d26c8e`, entered the world through the same address.
 
 - **Windowless server.** `cataclysm-tiles --server` loads the world and keeps time
   on its own: 1 turn = 1 second, player events are processed 10 times a second.
@@ -59,6 +55,10 @@ connection from another network yet.
   repository.
 - **World bounds.** One "reality bubble" around the anchor is simulated, in evac
   shelter A-23. Players must stay within roughly 60 tiles of it.
+- **The world is saved.** Autosave runs every 5 minutes or 50 turns, and the world
+  is also written when a player asks for a save and when a player leaves. While a
+  connected player thinks, the world stands still, because the game is turn-based,
+  so there is nothing to save then.
 - **Peaceful world.** Monster spawn density is 0. Rats and random NPCs placed by
   map generation still appear.
 - **No password.** The `Join` menu always sends an empty password, so the server
@@ -77,16 +77,19 @@ Scripts in [`tools/soma-world`](tools/soma-world):
 | Script | What it does |
 | --- | --- |
 | `install-autostart.ps1` | registers the task: no stored password, runs only while the owner is signed in, no time limit |
-| `start-server.ps1` | starts the server and supervises it: restarts it after a crash or a hang but not after a clean exit, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
+| `start-server.ps1` | starts the server and supervises it: restarts it after a crash or a hang but not after a requested stop, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
 | `stop-server.ps1` | asks the server to save the world and exit, then stops the task, the supervising loop and anything still running |
 
 Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
 password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
 variable and never enters Git.
 
-Logs are in `server-logs` next to the game build: `server-<time>.out.log` (the
-game) and `wrapper.log` (the supervisor). The game also appends to
-`%USERPROFILE%\cdda-mp-server.log`, which every build of the fork shares.
+The server build is in `game\SomaWorld-9f50a6140a`. The previous one,
+`game\Cddacoop`, stays for a rollback: `install-autostart.ps1 -GameDir <folder>`,
+then `Start-ScheduledTask`. Logs are in `server-logs` next to the game build:
+`server-<time>.out.log` (the game) and `wrapper.log` (the supervisor). The game
+also appends to `%USERPROFILE%\cdda-mp-server.log`, which every build of the fork
+shares.
 
 After a Windows Update restart, Windows signs the owner back in by itself, so the
 server returns. After a shutdown or a sign-out it returns only with the next
@@ -109,8 +112,10 @@ The request is an empty file `server.stop` in the world's save folder, for world
 the file twice a second, deletes it, saves the world, sends connected clients the
 co-op "session ending" notice and exits with code 0. If the save fails, the server
 keeps running and writes the reason to `config\debug.log`; a new `server.stop` tries
-again. The supervisor does not restart a server after a clean exit, and removes a
-leftover `server.stop` before it starts one.
+again. The supervisor does not restart a server after a requested stop (code 0 and
+the line `STOP: world saved` in the game's log), and removes a leftover
+`server.stop` before it starts one. The game also returns code 0 without that line
+when it fails to start, so the supervisor restarts such an exit like a crash.
 
 `stop-server.ps1` makes this request first and waits up to two minutes. Only if the
 server never takes the file, as build `7cc9d26c8e` never does, does the script end
@@ -120,16 +125,17 @@ the whole process tree.
 
 ## Known problems
 
-- **The world is not saved.** In `--server` mode of build `7cc9d26c8e` autosave
-  never fires: the turn counter it depends on stays at zero. Every restart returns
-  the world to the last save made in the game itself. A fix is in progress but not
-  built yet.
-- **Crash when a player is idle.** If a connected player does nothing for a while,
-  the server can crash: in `--server` mode the game reaches for a user interface
-  that does not exist. The supervisor brings the server back in about a minute;
-  the player has to connect again. A fix is in progress.
-- **Command-line `--client`** does not send the client version. The fix is in
-  [PR #1](https://github.com/HappyMiha/soma-world/pull/1), not built yet.
+- **One player at a time**: see the [road to N players](doc/soma-world/roadmap.en.md).
+- **A hard stop loses what is unsaved.** A killed process, an ended task or a PC
+  turned off returns the world to its last save: up to 5 minutes of play with
+  nobody connected, longer while a player acts slowly.
+- **A failed save goes unnoticed by the player.** The server answers a player's
+  save request with "saved" even when the write failed; only the server's log
+  gives the reason.
+- **Log and memory grow while a player thinks.** With an idle player connected,
+  the game's log grows by about 65 MB a day and memory by a few megabytes per hour
+  of waiting; both reset when the server restarts.
+- **Windows client only** in the release.
 - **No password**: see "What works now".
 
 ## Origin and license
