@@ -32,7 +32,17 @@ the way, and the order in which to remove it. File references match the fork at
   must pass `getVersionString()`. Password joins then work, and the server can be
   closed with a password.
 - **Lossless stop.** The `--server` loop ends only with the game. It needs a way to
-  save the world and exit on request instead of relying on autosave.
+  save the world and exit on request. The proposal is a `server.stop` file in
+  [PR #1](https://github.com/HappyMiha/soma-world/pull/1). Ending the Task
+  Scheduler task kills the whole process tree, so an autostarted server has to be
+  stopped through that file, not through the task.
+- **Autosave in `--server`.** The world is never written: per the investigation,
+  `quicksave()` returns at once because in server mode the
+  `moves_since_last_save` counter stays at zero (the anchor's moves are zeroed).
+- **Crash with an idle player.** Per the investigation, `--server` has no user
+  interface (`tilecontext` is null), yet after 100 ms the client wait loop polls
+  host input, which reaches for it (`src/handle_action.cpp`). Steps meant only for
+  a host must be skipped.
 
 ### 2. Several sessions
 
