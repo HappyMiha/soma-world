@@ -15,21 +15,25 @@
 // code.  The SP side is a single named callout in game::autosave().
 //
 // The server's handlers for a client's save_request and session_ending
-// (mp_gamestate.cpp) still call quicksave(), which still writes nothing in
-// --server.  They must not simply save here instead: they run inside
-// process_mp_events(), which lets one turn action through per drain and counts
-// both messages as turn actions.  A client action that arrives during the save
-// would be dropped, and both sides would then wait on each other.  Those two
-// messages have to be added to its is_state_sync list first.
+// (mp_gamestate.cpp, not changed here) still call quicksave(), which still
+// writes nothing in --server.  Do not just call mp_server_save_world() there.
+// They run inside process_mp_events(), whose drain takes either message as its
+// one turn action and then drops every later non-state-sync packet, including
+// the ones that arrive during the save.  Ordinary client actions are safe:
+// client_enrich_action() adds "client_tile_changes", which is_state_sync
+// accepts.  But the keep-smashing re-fire is sent bare and holds the client's
+// ack guard, so dropping it would leave both sides waiting, and a bare
+// activity_start or activity_end would be lost.  Make the two messages
+// state-sync first.
 
 namespace cata_mp
 {
 
 // --server only.  Writes the world with game::save(), with no popup or redraw,
 // logs the outcome through mp_log() (stdout and cdda-mp-server.log) and returns
-// whether the world was written.  A failed save, also one where game::save()
-// throws, is logged, and the server keeps running.  Named callout (rule 4) from
-// game::autosave().
+// whether the world was written.  A failed save, including one where
+// game::save() throws, is logged, and the server keeps running.  Named callout
+// (rule 4) from game::autosave().
 bool mp_server_save_world();
 
 } // namespace cata_mp
