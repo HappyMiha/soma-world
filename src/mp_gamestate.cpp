@@ -10471,6 +10471,12 @@ void wait_for_client_action()
                     " set, breaking out of client wait" );
             break;
         }
+        // Same for a --server stop request: finish this turn without the
+        // client's action so the server loop can save and exit.
+        if( mp_server_stop_requested() ) {
+            mp_log( "[cdda-mp] SRV-WAIT: server stop requested, breaking out of client wait" );
+            break;
+        }
         if( g_client_acted_this_turn ) {
             break;  // client acted, advance shared clock by this turn
         }
@@ -12223,7 +12229,10 @@ void mp_after_world_save()
 
 void mp_notify_session_ending()
 {
-    if( is_host_mode() ) {
+    // --server never sets host mode, but its stop (mp_server_save_for_stop) ends
+    // the session the same way.
+    const bool hosting_side = is_host_mode() || is_server_mode();
+    if( hosting_side ) {
         server *srv = get_active_server();
         if( srv ) {
             srv->post_broadcast( "{\"type\":\"session_ending\",\"from\":\"host\"}\n" );
@@ -12246,7 +12255,7 @@ void mp_notify_session_ending()
     // (reproduced 2026-06-02). stop() makes srv.run() return -> run_server sets
     // active_server_ = nullptr. The post-stop pause lets that unwind before any
     // re-host checks is_hosting().
-    if( is_host_mode() ) {
+    if( hosting_side ) {
         if( server *srv = get_active_server() ) {
             srv->stop();
             mp_log( "[cdda-mp] SESSION-END: host server stop() called" );
@@ -12272,6 +12281,55 @@ void mp_notify_session_ending()
     g_mp_edge.reset();
     g_mp_hud.reset();
     mp_log( "[cdda-mp] SESSION-END: co-op HUD reset" );
+}
+
+// --server lossless stop: see mp_server_stop_requested() in mp_gamestate.h.
+static bool g_server_stop_requested = false;
+
+bool mp_server_stop_requested()
+{
+    if( !is_server_mode() || g_server_stop_requested ) {
+        return g_server_stop_requested;
+    }
+    // SRV-WAIT can spin without sleeping (burst mode), so throttle the disk check.
+    static std::chrono::steady_clock::time_point next_check;
+    const auto now = std::chrono::steady_clock::now();
+    if( now < next_check ) {
+        return false;
+    }
+    next_check = now + std::chrono::milliseconds( 500 );
+    const cata_path stop_file = PATH_INFO::world_base_save_path() / "server.stop";
+    if( !file_exist( stop_file ) ) {
+        return false;
+    }
+    // One request per file: removed before saving, so a failed save doesn't
+    // retry every poll and the next start of the server doesn't stop at once.
+    if( !remove_file( stop_file ) ) {
+        mp_log( "[cdda-mp] STOP: could not delete " + stop_file.generic_u8string() +
+                " — delete it before the next start" );
+    }
+    mp_log( "[cdda-mp] STOP: " + stop_file.generic_u8string() +
+            " found — saving the world and shutting down" );
+    g_server_stop_requested = true;
+    return true;
+}
+
+bool mp_server_save_for_stop()
+{
+    // The host's Save and quit order (ACTION_SAVE in handle_action.cpp): save,
+    // tell the partner, quit.  game::save(), not quicksave(): quicksave() skips
+    // the write when the avatar has not moved since the last save, and the
+    // --server anchor never moves.
+    if( !g->save() ) {
+        mp_log( "[cdda-mp] STOP: save FAILED — the server keeps running.  See "
+                "config/debug.log, then create server.stop again to retry." );
+        g_server_stop_requested = false;
+        return false;
+    }
+    mp_log( "[cdda-mp] STOP: world saved" );
+    mp_notify_session_ending();
+    g->uquit = QUIT_SAVED;
+    return true;
 }
 
 // Enumerate `*.template` basenames in the user templates dir.
@@ -19362,7 +19420,8 @@ static void apply_vehicle_sync( JsonObject &jo )
                 // pre-loop `vehs` snapshot the match used — to catch a stale-list
                 // miss too.
                 {
-                    std::string near;
+                    // Not "near": windows.h defines that as an empty macro (MSVC build).
+                    std::string nearby;
                     for( const wrapped_vehicle &wv : m.get_vehicles() ) {
                         if( !wv.v ) {
                             continue;
@@ -19371,15 +19430,15 @@ static void apply_vehicle_sync( JsonObject &jo )
                         if( p.z() == new_abs.z() &&
                             std::abs( p.x() - new_abs.x() ) <= 12 &&
                             std::abs( p.y() - new_abs.y() ) <= 12 ) {
-                            near += "\"" + wv.v->name + "\"@" +
-                                    std::to_string( p.x() ) + "," +
-                                    std::to_string( p.y() ) + " ";
+                            nearby += "\"" + wv.v->name + "\"@" +
+                                      std::to_string( p.x() ) + "," +
+                                      std::to_string( p.y() ) + " ";
                         }
                     }
                     mp_log( "[cdda-mp] CLI-VEH-SKIP-DIAG: nid=" + std::to_string( nid ) +
                             " tracked=" + std::to_string( search_abs.x() ) + "," +
                             std::to_string( search_abs.y() ) +
-                            " nearby=[ " + near + "]" );
+                            " nearby=[ " + nearby + "]" );
                 }
                 // Ask the host to re-include a full snapshot for this nid on its
                 // next broadcast — closes the "invisible forever" gap where the

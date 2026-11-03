@@ -1050,14 +1050,19 @@ int main( int argc, const char *argv[] )
         // Pace the server to real-time (1 game turn = 1 real second).
         // Between game ticks, poll MP events at 10 Hz so player input is
         // processed in ~100 ms rather than waiting up to a full second.
+        // A stop request (server.stop in the world folder) saves the world and
+        // sets QUIT_SAVED, so the next do_turn() ends the loop like Save and quit.
         using clock = std::chrono::steady_clock;
         constexpr auto TICK_INTERVAL = std::chrono::seconds( 1 );
         constexpr auto POLL_INTERVAL = std::chrono::milliseconds( 100 );
         while( !g->do_turn() ) {
             auto next_tick = clock::now() + TICK_INTERVAL;
-            while( clock::now() < next_tick ) {
+            while( clock::now() < next_tick && !cata_mp::mp_server_stop_requested() ) {
                 std::this_thread::sleep_for( POLL_INTERVAL );
                 cata_mp::process_mp_events();
+            }
+            if( cata_mp::mp_server_stop_requested() ) {
+                cata_mp::mp_server_save_for_stop();
             }
         }
 
@@ -1078,10 +1083,14 @@ int main( int argc, const char *argv[] )
         const std::string name = !cli.client_name.empty() ? cli.client_name
                                  : !cli.char_name.empty()  ? cli.char_name
                                  : "player2";
+        // Send our version like the in-game Join menu does: a host that checks
+        // versions rejects a probe without one ("PROBE REJECTED — version mismatch").
         if( !cata_mp::client_connect( cli.client_host, cli.client_port,
-                                      name, cli.client_password ) ) {
-            fprintf( stderr, "[cdda-mp] Failed to connect to %s:%d\n",
-                     cli.client_host.c_str(), cli.client_port );
+                                      name, cli.client_password, getVersionString() ) ) {
+            const std::string err = cata_mp::client_connect_error();
+            fprintf( stderr, "[cdda-mp] Failed to connect to %s:%d%s%s\n",
+                     cli.client_host.c_str(), cli.client_port,
+                     err.empty() ? "" : ": ", err.c_str() );
             return 1;
         }
         printf( "[cdda-mp] Client mode active — connected to %s:%d\n",

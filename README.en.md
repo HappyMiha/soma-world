@@ -28,8 +28,14 @@ limit of this world.
 3. After the connection message, open `Join a session` again, create a character
    and enter the world.
 
-Do not use the command-line `--client` launch: in build `7cc9d26c8e` it does not
-send the client version, and the server answers `PROBE REJECTED — version mismatch`.
+Do not start build `7cc9d26c8e` with `--client` on the command line: it does not
+send the client version that way, and the server answers
+`PROBE REJECTED — version mismatch`. This repository's code fixes that (stage 1 of
+the [road to N players](doc/soma-world/roadmap.en.md)), but the fix helps only once
+the server and every client run the same build made from this code, and the server
+still runs `7cc9d26c8e`. With such a build,
+`--client <address:port> --password <password>` is also the way into a server that
+has a password: the `Join` menu has no password field.
 
 The connection is plain TCP/JSON without TLS. The playit tunnel encrypts only the
 leg between its edge and the owner's PC, not between you and the edge. Do not send
@@ -71,8 +77,8 @@ Scripts in [`tools/soma-world`](tools/soma-world):
 | Script | What it does |
 | --- | --- |
 | `install-autostart.ps1` | registers the task: no stored password, runs only while the owner is signed in, no time limit |
-| `start-server.ps1` | starts the server and supervises it: restarts it after it exits, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
-| `stop-server.ps1` | stops the task, the supervising loop and the server |
+| `start-server.ps1` | starts the server and supervises it: restarts it after a crash or a hang but not after a clean exit, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
+| `stop-server.ps1` | asks the server to save the world and exit, then stops the task, the supervising loop and anything still running |
 
 Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
 password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
@@ -94,6 +100,23 @@ The server loads only a world that already holds a saved character. For world
 | `WORLD_END` | `keep` | the world is not reset if the character dies |
 | `SPAWN_DENSITY` | `0.00` | no monster waves |
 | anchor traits | Debug Invincibility, Life Support, Prevent Death, HVAC | the anchor never moves: without these traits it dies of thirst and the server stops |
+
+### Stopping without losses
+
+A server built from this repository's code saves the world and exits on request.
+The request is an empty file `server.stop` in the world's save folder, for world
+`soma` that is `save\soma\server.stop` next to the game build. The server looks for
+the file twice a second, deletes it, saves the world, sends connected clients the
+co-op "session ending" notice and exits with code 0. If the save fails, the server
+keeps running and writes the reason to `config\debug.log`; a new `server.stop` tries
+again. The supervisor does not restart a server after a clean exit, and removes a
+leftover `server.stop` before it starts one.
+
+`stop-server.ps1` makes this request first and waits up to two minutes. Only if the
+server never takes the file, as build `7cc9d26c8e` never does, does the script end
+the task and the process, and then the world returns to its last save. Ending the
+task in Task Scheduler or killing the process does the same: ending the task kills
+the whole process tree.
 
 ## Known problems
 
