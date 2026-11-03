@@ -44,8 +44,10 @@ anything private in the game.
 ## What works now
 
 Checked on 3 November 2026: a client on the same PC connected through
-`soma.lokvetia.com:64870`, passed the version check and entered the world. Nobody
-has checked a connection from another network yet.
+`soma.lokvetia.com:64870`, passed the version check and entered the world. The
+same day the server moved to autostart; after the move only a TCP connection
+through the public address was checked, not a full game join. Nobody has checked a
+connection from another network yet.
 
 - **Windowless server.** `cataclysm-tiles --server` loads the world and keeps time
   on its own: 1 turn = 1 second, player events are processed 10 times a second.
@@ -64,12 +66,31 @@ has checked a connection from another network yet.
 
 ## Server
 
-The server runs on the owner's PC. The script
-[`tools/soma-world/start-server.ps1`](tools/soma-world/start-server.ps1) starts it
-with the right flags, restarts it after a crash (`-Restart`), stops it without
-losses (`-Stop`, see below) and writes logs next to the game build. A password, if
-one is needed, comes from the `SOMA_WORLD_PASSWORD` environment variable and never
-enters Git.
+The server runs on the owner's PC as the Windows Task Scheduler task "SOMA World
+server". It starts 30 seconds after the owner signs in and keeps the server alive.
+The local port is 38080; the playit tunnel leads there from
+`soma.lokvetia.com:64870`. Port 8080 is unsuitable: on this PC it belongs to the
+Temporal UI of Lokvetia Core.
+
+Scripts in [`tools/soma-world`](tools/soma-world):
+
+| Script | What it does |
+| --- | --- |
+| `install-autostart.ps1` | registers the task: no stored password, runs only while the owner is signed in, no time limit |
+| `start-server.ps1` | starts the server and supervises it: restarts it after it exits, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
+| `stop-server.ps1` | stops the task, the supervising loop and the server |
+
+Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
+password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
+variable and never enters Git.
+
+Logs are in `server-logs` next to the game build: `server-<time>.out.log` (the
+game) and `wrapper.log` (the supervisor). The game also appends to
+`%USERPROFILE%\cdda-mp-server.log`, which every build of the fork shares.
+
+After a Windows Update restart, Windows signs the owner back in by itself, so the
+server returns. After a shutdown or a sign-out it returns only with the next
+sign-in.
 
 The server loads only a world that already holds a saved character. For world
 `soma` that character was created once in the game, with these settings:
@@ -80,22 +101,19 @@ The server loads only a world that already holds a saved character. For world
 | `SPAWN_DENSITY` | `0.00` | no monster waves |
 | anchor traits | Debug Invincibility, Life Support, Prevent Death, HVAC | the anchor never moves: without these traits it dies of thirst and the server stops |
 
-### Stopping without losses
+## Known problems
 
-A server built from this repository's code saves the world and exits on request.
-Create an empty file `server.stop` in the world's save folder, for world `soma` that
-is `save\soma\server.stop` next to the game build. The server looks for the file
-twice a second, deletes it, saves the world, sends connected clients the co-op
-"session ending" notice and exits with code 0. If the save fails, the server keeps
-running and writes the reason to `config\debug.log`; a new `server.stop` tries again.
-
-`.\start-server.ps1 -Stop` creates the file for you and waits until the server exits.
-A server started with `-Restart` is not started again after a clean exit like this.
-
-The running server is still on build `7cc9d26c8e`, which has no such stop: it can only
-be killed, and everything since the world was last saved is lost. The game's
-autosave does not help in `--server` mode: it skips the save when the character has
-not moved since the last save, and the anchor never moves.
+- **The world is not saved.** In `--server` mode of build `7cc9d26c8e` autosave
+  never fires: the turn counter it depends on stays at zero. Every restart returns
+  the world to the last save made in the game itself. A fix is in progress but not
+  built yet.
+- **Crash when a player is idle.** If a connected player does nothing for a while,
+  the server can crash: in `--server` mode the game reaches for a user interface
+  that does not exist. The supervisor brings the server back in about a minute;
+  the player has to connect again. A fix is in progress.
+- **Command-line `--client`** does not send the client version. The fix is in
+  [PR #1](https://github.com/HappyMiha/soma-world/pull/1), not built yet.
+- **No password**: see "What works now".
 
 ## Origin and license
 

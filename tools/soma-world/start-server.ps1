@@ -1,118 +1,170 @@
 <#
 .SYNOPSIS
-Starts the SOMA World headless server, or asks a running one to stop.
+Starts the SOMA World headless server and keeps it running.
 
 .DESCRIPTION
 Runs cataclysm-tiles in --server mode on an existing world. The world must
 already contain a saved character: the server loads it as the world's anchor.
-Output goes to server-logs next to the game build.
 
--Stop asks the server that runs this world from this game build to save the
-world and exit, and waits for it. The request is an empty file server.stop in
-the world's save folder; the server looks for it twice a second and deletes it.
-Builds of the co-op fork up to 7cc9d26c8e ignore the file.
+The script supervises the server instead of waiting on it. A healthy headless
+server has no window and writes a log line every turn, so a window (the game's
+crash dialog) or a log that stops growing means it is stuck: the script keeps
+the crash dump and stops the process. With -Restart it starts the server again,
+waiting longer after repeated quick exits.
+
+It refuses to start while anything else uses this build's saves (a GUI or
+another server from this folder, or a build pointed at it) or holds the port.
+Only one copy of this script runs per world and port.
+
+Logs, in server-logs next to the game build: server-<time>.out.log (game
+output) and wrapper.log (this script). The game also appends to
+%USERPROFILE%\cdda-mp-server.log, which every build of the fork shares.
 
 The password, if any, is read from the SOMA_WORLD_PASSWORD environment variable
 and is never written to disk. It is still visible in the local process list.
 
 .EXAMPLE
-.\start-server.ps1 -Restart
-
-.EXAMPLE
-.\start-server.ps1 -Stop
+.\start-server.ps1 -Port 38080 -Restart
 #>
 param(
     [string]$GameDir = $(if ($env:SOMA_WORLD_GAME) { $env:SOMA_WORLD_GAME } else { Join-Path $HOME 'soma-world-server\game\Cddacoop' }),
     [string]$World = 'soma',
-    [int]$Port = 8080,
-    # Start the server again after it crashes or fails, until this window is
-    # closed. A clean exit (code 0, as after -Stop) is not restarted.
+    [int]$Port = 38080,
+    # Start the server again after it exits.
     [switch]$Restart,
-    # Ask the running server to save the world and exit, then wait for it.
-    [switch]$Stop,
-    # How long -Stop waits for the server to exit.
-    [int]$StopTimeoutSeconds = 300
+    # Seconds without new game output before the server counts as stuck.
+    [int]$StallSeconds = 180
 )
 
 $ErrorActionPreference = 'Stop'
 
+$GameDir = [IO.Path]::GetFullPath($GameDir).TrimEnd('\')
 $exe = Join-Path $GameDir 'cataclysm-tiles.exe'
 if (-not (Test-Path $exe)) {
     throw "Game build not found: $exe"
 }
-$worldDir = Join-Path $GameDir "save\$World"
-if (-not (Test-Path $worldDir)) {
+if (-not (Test-Path (Join-Path $GameDir "save\$World"))) {
     throw "World '$World' not found in $GameDir\save. Create it in the game first."
 }
 
 $logDir = Join-Path $GameDir 'server-logs'
+New-Item -ItemType Directory -Force $logDir | Out-Null
+$wrapperLog = Join-Path $logDir 'wrapper.log'
 
-if ($Stop) {
-    # Only a server started from this build for this world: another game folder
-    # may run a world with the same name.
-    $exePath = (Resolve-Path $exe).Path
-    $worldArg = '(^|\s)--world\s+"?' + [regex]::Escape($World) + '"?(\s|$)'
-    $servers = @(Get-CimInstance Win32_Process -Filter "Name = 'cataclysm-tiles.exe'" |
-        Where-Object {
-            $_.ExecutablePath -eq $exePath -and
-            $_.CommandLine -match '(^|\s)--server(\s|$)' -and
-            $_.CommandLine -match $worldArg
-        })
-    if ($servers.Count -eq 0) {
-        Write-Host "No server for world '$World' is running from $exePath."
-        exit 1
-    }
-    # Open the processes before asking, so their exit codes can be read later.
-    $processes = @($servers | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } |
-        Where-Object { $_ })
-    $processes | ForEach-Object { $null = $_.Handle }
-    $stopFile = Join-Path $worldDir 'server.stop'
-    New-Item -ItemType File -Force -Path $stopFile | Out-Null
-    Write-Host "Asked the server (PID $($processes.Id -join ', ')) to save world '$World' and exit."
-    $failed = $false
-    foreach ($p in $processes) {
-        if (-not $p.WaitForExit($StopTimeoutSeconds * 1000)) {
-            Write-Warning "PID $($p.Id) is still running after $StopTimeoutSeconds s. See the newest log in $logDir."
-            $failed = $true
-        } elseif ($p.ExitCode -ne 0) {
-            Write-Warning "PID $($p.Id) exited with code $($p.ExitCode). See the newest log in $logDir."
-            $failed = $true
-        }
-    }
-    if ($failed) {
-        # The server deletes the file when it sees it. If it is still here, the
-        # build does not support it: do not leave it for the next start.
-        if (Test-Path $stopFile) {
-            Remove-Item -LiteralPath $stopFile
-            Write-Warning "The server never picked up $stopFile (builds up to 7cc9d26c8e have no -Stop); removed it."
-        }
-        exit 1
-    }
-    Write-Host "Server stopped after saving the world."
-    exit 0
+function Write-Log([string]$Message) {
+    $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
+    Write-Host $line
+    Add-Content -Path $wrapperLog -Value $line -Encoding UTF8
 }
 
-New-Item -ItemType Directory -Force $logDir | Out-Null
-# The server logs every turn (about 24 MB a day with nobody online).
-Get-ChildItem $logDir -Filter 'server-*.log' |
-    Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
-    Remove-Item
+# One copy of this script per world and port.
+$mutex = New-Object System.Threading.Mutex($false, "Local\SomaWorldServer-$World-$Port")
+try {
+    $owned = $mutex.WaitOne(0)
+} catch [System.Threading.AbandonedMutexException] {
+    $owned = $true
+}
+if (-not $owned) {
+    Write-Log "Another start-server.ps1 already runs world '$World' on port $Port; exiting."
+    exit 0
+}
+# stop-server.ps1 uses this to find the loop. The start time guards against a
+# reused process id.
+$self = Get-Process -Id $PID
+Set-Content -Path (Join-Path $logDir "wrapper-$World-$Port.pid") -Value "$PID $($self.StartTime.ToFileTimeUtc())"
 
 $gameArgs = @('--server', '--world', $World, '--port', $Port)
 if ($env:SOMA_WORLD_PASSWORD) {
     $gameArgs += @('--password', $env:SOMA_WORLD_PASSWORD)
 }
 
-do {
-    $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $out = Join-Path $logDir "server-$stamp.out.log"
-    $err = Join-Path $logDir "server-$stamp.err.log"
-    Write-Host "[$stamp] SOMA World server: world=$World port=$Port logs=$logDir"
-    $process = Start-Process -FilePath $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir `
-        -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru -Wait
-    Write-Host "Server exited with code $($process.ExitCode). See $err"
-    $again = $Restart -and $process.ExitCode -ne 0
-    if ($again) {
-        Start-Sleep -Seconds 10
+# Processes that read or write this build's saves: a GUI or server started from
+# this folder without its own user dir, or any build whose arguments point here.
+# A process that cannot be inspected counts as a conflict.
+function Get-SaveUser {
+    Get-CimInstance Win32_Process -Filter "Name='cataclysm-tiles.exe'" | Where-Object {
+        if (-not $_.ExecutablePath -or -not $_.CommandLine) {
+            return $true
+        }
+        $rest = $_.CommandLine -replace '^\s*("[^"]*"|\S+)', ''
+        $sameBuild = [IO.Path]::GetFullPath($_.ExecutablePath) -eq $exe
+        $ownUserDir = $rest -match '--(userdir|basepath|savedir)\b'
+        $pointsHere = $rest.IndexOf($GameDir, [StringComparison]::OrdinalIgnoreCase) -ge 0
+        ($sameBuild -and -not $ownUserDir) -or $pointsHere
     }
-} while ($again)
+}
+
+# A plain .NET query: Get-NetTCPConnection goes through CIM and has hung here
+# for over a minute.
+function Test-PortBusy {
+    [bool]([System.Net.NetworkInformation.IPGlobalProperties]::GetIPGlobalProperties().GetActiveTcpListeners() |
+        Where-Object { $_.Port -eq $Port })
+}
+
+$quickExits = 0
+do {
+    try {
+        Get-ChildItem $logDir -Filter 'server-*' |
+            Where-Object { $_.LastWriteTime -lt (Get-Date).AddDays(-14) } |
+            Remove-Item
+
+        $users = @(Get-SaveUser)
+        $portBusy = Test-PortBusy
+        if ($users.Count -gt 0 -or $portBusy) {
+            if ($users.Count -gt 0) {
+                $reason = "this build's saves are in use by pid $($users.ProcessId -join ', ')"
+            } else {
+                $owners = @(Get-NetTCPConnection -State Listen -LocalPort $Port -ErrorAction SilentlyContinue |
+                    Select-Object -ExpandProperty OwningProcess -Unique)
+                $reason = "port $Port is held by pid $($owners -join ', ')"
+            }
+            Write-Log "Not starting: $reason."
+            if (-not $Restart) {
+                exit 1
+            }
+            Start-Sleep -Seconds 60
+            continue
+        }
+
+        $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+        $out = Join-Path $logDir "server-$stamp.out.log"
+        $err = Join-Path $logDir "server-$stamp.err.log"
+        Write-Log "Starting server: world=$World port=$Port log=$out"
+        $started = Get-Date
+        $process = Start-Process -FilePath $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir `
+            -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
+        # Keep the handle open so the exit code survives the process.
+        $null = $process.Handle
+        $lastSize = -1
+        $lastGrowth = Get-Date
+        while (-not $process.WaitForExit(5000)) {
+            $process.Refresh()
+            if ($process.MainWindowHandle -ne [IntPtr]::Zero) {
+                Copy-Item (Join-Path $GameDir '.core') (Join-Path $logDir "server-$stamp.core.dmp") -ErrorAction SilentlyContinue
+                Write-Log "Server pid $($process.Id) opened a window, which means its crash dialog; kept the dump and stopped it."
+                Stop-Process -Id $process.Id -Force
+                break
+            }
+            $size = (New-Object IO.FileInfo $out).Length
+            if ($size -ne $lastSize) {
+                $lastSize = $size
+                $lastGrowth = Get-Date
+            } elseif (((Get-Date) - $lastGrowth).TotalSeconds -gt $StallSeconds) {
+                Write-Log "Server pid $($process.Id) wrote nothing for $StallSeconds s; stopped it."
+                Stop-Process -Id $process.Id -Force
+                break
+            }
+        }
+        $process.WaitForExit()
+        $ran = ((Get-Date) - $started).TotalSeconds
+        Write-Log ('Server exited with code {0} after {1:N0} s. See {2}' -f $process.ExitCode, $ran, $err)
+        $quickExits = if ($ran -lt 120) { $quickExits + 1 } else { 0 }
+    } catch {
+        Write-Log "Error: $($_.Exception.Message)"
+        $quickExits++
+    }
+    if ($Restart) {
+        # 10 s normally, doubling after each quick exit up to 5 minutes.
+        Start-Sleep -Seconds ([Math]::Min(300, 10 * [Math]::Pow(2, [Math]::Min($quickExits, 5))))
+    }
+} while ($Restart)
