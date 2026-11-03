@@ -13320,7 +13320,14 @@ void process_mp_events()
                || data.find( "\"type\":\"resync_request\"" ) != std::string::npos
                || data.find( "\"type\":\"heartbeat\"" ) != std::string::npos
                || data.find( "\"type\":\"peer_modal\"" ) != std::string::npos
-               || data.find( "\"client_tile_changes\":" ) != std::string::npos;
+               || data.find( "\"client_tile_changes\":" ) != std::string::npos
+               // --server: these two now write the world (about 0.6 s) inside this
+               // drain.  Counted as the turn action, they would make it drop every
+               // bare packet that arrives meanwhile (a keep-smash re-fire,
+               // activity_start/end).  Neither advances the lockstep turn.
+               || ( is_server_mode() &&
+                    ( data.find( "\"action\":\"save_request\"" ) != std::string::npos
+                      || data.find( "\"action\":\"session_ending\"" ) != std::string::npos ) );
     };
     mp_event event;
     bool turn_action_processed = false;
