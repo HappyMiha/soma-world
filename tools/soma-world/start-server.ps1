@@ -66,7 +66,8 @@ if ($Stop) {
     $processes = @($servers | ForEach-Object { Get-Process -Id $_.ProcessId -ErrorAction SilentlyContinue } |
         Where-Object { $_ })
     $processes | ForEach-Object { $null = $_.Handle }
-    New-Item -ItemType File -Force -Path (Join-Path $worldDir 'server.stop') | Out-Null
+    $stopFile = Join-Path $worldDir 'server.stop'
+    New-Item -ItemType File -Force -Path $stopFile | Out-Null
     Write-Host "Asked the server (PID $($processes.Id -join ', ')) to save world '$World' and exit."
     $failed = $false
     foreach ($p in $processes) {
@@ -79,6 +80,12 @@ if ($Stop) {
         }
     }
     if ($failed) {
+        # The server deletes the file when it sees it. If it is still here, the
+        # build does not support it: do not leave it for the next start.
+        if (Test-Path $stopFile) {
+            Remove-Item -LiteralPath $stopFile
+            Write-Warning "The server never picked up $stopFile (builds up to 7cc9d26c8e have no -Stop); removed it."
+        }
         exit 1
     }
     Write-Host "Server stopped after saving the world."
