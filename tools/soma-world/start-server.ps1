@@ -10,7 +10,11 @@ The script supervises the server instead of waiting on it. A healthy headless
 server has no window and writes a log line every turn, so a window (the game's
 crash dialog) or a log that stops growing means it is stuck: the script keeps
 the crash dump and stops the process. With -Restart it starts the server again,
-waiting longer after repeated quick exits.
+waiting longer after repeated quick exits, but not after a clean exit (code 0):
+that is how a server stopped through server.stop (stop-server.ps1) ends, and a
+new start would undo the stop. A server.stop found before a start is left over
+from a request no server took, and is removed, or it would stop the new server
+right after it loads.
 
 It refuses to start while anything else uses this build's saves (a GUI or
 another server from this folder, or a build pointed at it) or holds the port.
@@ -30,7 +34,7 @@ param(
     [string]$GameDir = $(if ($env:SOMA_WORLD_GAME) { $env:SOMA_WORLD_GAME } else { Join-Path $HOME 'soma-world-server\game\Cddacoop' }),
     [string]$World = 'soma',
     [int]$Port = 38080,
-    # Start the server again after it exits.
+    # Start the server again after it exits, unless it exited cleanly (code 0).
     [switch]$Restart,
     # Seconds without new game output before the server counts as stuck.
     [int]$StallSeconds = 180
@@ -129,6 +133,11 @@ do {
         $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
         $out = Join-Path $logDir "server-$stamp.out.log"
         $err = Join-Path $logDir "server-$stamp.err.log"
+        $stopFile = Join-Path $GameDir "save\$World\server.stop"
+        if (Test-Path $stopFile) {
+            Remove-Item -LiteralPath $stopFile
+            Write-Log "Removed a server.stop left from before this start."
+        }
         Write-Log "Starting server: world=$World port=$Port log=$out"
         $started = Get-Date
         $process = Start-Process -FilePath $exe -ArgumentList $gameArgs -WorkingDirectory $GameDir `
@@ -158,6 +167,11 @@ do {
         $process.WaitForExit()
         $ran = ((Get-Date) - $started).TotalSeconds
         Write-Log ('Server exited with code {0} after {1:N0} s. See {2}' -f $process.ExitCode, $ran, $err)
+        if ($process.ExitCode -eq 0) {
+            # A stop through server.stop, or the end of the game: do not undo it.
+            Write-Log 'Clean exit; not starting the server again.'
+            break
+        }
         $quickExits = if ($ran -lt 120) { $quickExits + 1 } else { 0 }
     } catch {
         Write-Log "Error: $($_.Exception.Message)"
