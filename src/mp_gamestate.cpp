@@ -10459,6 +10459,13 @@ void wait_for_client_action()
                                      ? get_avatar().activity.id().str() : "";
     // Log the partner-interactive skip (below) once per wait, not per-iter.
     bool logged_partner_interactive_skip = false;
+    // --server has no local player, screen or keyboard: main() sets test_mode and
+    // skips catacurses::init_interface(), so tilecontext is null.  The host-only
+    // steps below (HUD, redraw, the host input poll) must not run there.  Before
+    // this, a joined player who did not act crashed the server ~100ms into the
+    // first wait: mp_poll_input() -> handle_action() -> get_player_input()
+    // dereferenced the null tilecontext (0xc0000005, 2026-11-03).
+    const bool host_has_local_ui = !is_server_mode();
     while( remote_player_connected ) {
         // Host requested quit (save&quit / suicide / die) while waiting for the
         // client: stop waiting immediately so do_turn can return and the game
@@ -10601,8 +10608,10 @@ void wait_for_client_action()
         if( g_client_acted_this_turn ) {
             break;
         }
-        ensure_mp_hud();
-        inp_mngr.pump_events();
+        if( host_has_local_ui ) {
+            ensure_mp_hud();
+            inp_mngr.pump_events();
+        }
         const auto t_after_pump = std::chrono::steady_clock::now();
         // Redraw the side strip + Co-op panel ~10x/sec while we're blocked so
         // the host's HUD actually flips to red while locked, instead of staying
@@ -10610,7 +10619,8 @@ void wait_for_client_action()
         // isn't free and 60Hz redraws are wasteful when nothing visually changes.
         static auto last_redraw = std::chrono::steady_clock::now();
         const auto now = std::chrono::steady_clock::now();
-        if( std::chrono::duration_cast<std::chrono::milliseconds>( now - last_redraw ).count() > 100 ) {
+        if( host_has_local_ui &&
+            std::chrono::duration_cast<std::chrono::milliseconds>( now - last_redraw ).count() > 100 ) {
             mp_turn_phase( "cw:loop_redraw" );
             ui_manager::redraw();
             last_redraw = now;
@@ -10667,7 +10677,10 @@ void wait_for_client_action()
         // mistakes asleep for idle — which fixed the three FF predicates and missed
         // this one.  A sleeping host must skip the blocking poll exactly as a
         // crafting host does; SP skips input entirely while asleep anyway.
-        if( wait_elapsed_ms > 100 && mp_local_ff_activity().empty() && !partner_interactive ) {
+        if( !host_has_local_ui ) {
+            // --server: nothing to poll; the loop keeps draining MP events above.
+        } else if( wait_elapsed_ms > 100 && mp_local_ff_activity().empty() &&
+                   !partner_interactive ) {
             g->mp_poll_input();
         } else if( partner_interactive && !logged_partner_interactive_skip ) {
             mp_log( "[cdda-mp] SRV-WAIT: partner interactive (" + g_partner_activity +
@@ -10720,8 +10733,10 @@ void wait_for_client_action()
     // because the avatar always has moves; without this, the time/wait-% HUD
     // and recent messages don't visibly tick between turns.  ui_manager::redraw()
     // is a no-op unless something has been invalidated.
-    g->invalidate_main_ui_adaptor();
-    ui_manager::redraw();
+    if( host_has_local_ui ) {
+        g->invalidate_main_ui_adaptor();
+        ui_manager::redraw();
+    }
     g_wait_elapsed_ms = static_cast<int>(
         std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - t_start ).count() );
