@@ -28,8 +28,14 @@ limit of this world.
 3. After the connection message, open `Join a session` again, create a character
    and enter the world.
 
-Do not use the command-line `--client` launch: in build `7cc9d26c8e` it does not
-send the client version, and the server answers `PROBE REJECTED — version mismatch`.
+Do not start build `7cc9d26c8e` with `--client` on the command line: it does not
+send the client version that way, and the server answers
+`PROBE REJECTED — version mismatch`. This repository's code fixes that (stage 1 of
+the [road to N players](doc/soma-world/roadmap.en.md)), but the fix helps only once
+the server and every client run the same build made from this code, and the server
+still runs `7cc9d26c8e`. With such a build,
+`--client <address:port> --password <password>` is also the way into a server that
+has a password: the `Join` menu has no password field.
 
 The connection is plain TCP/JSON without TLS. The playit tunnel encrypts only the
 leg between its edge and the owner's PC, not between you and the edge. Do not send

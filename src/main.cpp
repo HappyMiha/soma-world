@@ -1078,10 +1078,14 @@ int main( int argc, const char *argv[] )
         const std::string name = !cli.client_name.empty() ? cli.client_name
                                  : !cli.char_name.empty()  ? cli.char_name
                                  : "player2";
+        // Send our version like the in-game Join menu does: a host that checks
+        // versions rejects a probe without one ("PROBE REJECTED — version mismatch").
         if( !cata_mp::client_connect( cli.client_host, cli.client_port,
-                                      name, cli.client_password ) ) {
-            fprintf( stderr, "[cdda-mp] Failed to connect to %s:%d\n",
-                     cli.client_host.c_str(), cli.client_port );
+                                      name, cli.client_password, getVersionString() ) ) {
+            const std::string err = cata_mp::client_connect_error();
+            fprintf( stderr, "[cdda-mp] Failed to connect to %s:%d%s%s\n",
+                     cli.client_host.c_str(), cli.client_port,
+                     err.empty() ? "" : ": ", err.c_str() );
             return 1;
         }
         printf( "[cdda-mp] Client mode active — connected to %s:%d\n",
