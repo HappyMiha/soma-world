@@ -68,6 +68,7 @@
 #include "messages.h"
 #include "mod_manager.h"
 #include "mp_gamestate.h"
+#include "mp_server_save.h"
 #include "options.h"
 #include "output.h"
 #include "overmapbuffer.h"
@@ -915,7 +916,13 @@ void game::quicksave()
     time_t now = std::time( nullptr ); //timestamp for start of saving procedure
 
     //perform save
-    save();
+    // Named MP callout (rule 4): a --server has no player to see a failed save,
+    // and an exception from save() would end it.  cata_mp saves, catches, logs.
+    if( cata_mp::is_server_mode() ) {
+        cata_mp::mp_server_save_world();
+    } else {
+        save();
+    }
     //Now reset counters for autosaving, so we don't immediately autosave after a quicksave or autosave.
     moves_since_last_save = 0;
     last_save_timestamp = now;

@@ -972,6 +972,11 @@ bool game::do_turn()
         u.set_sleep_deprivation( 0 );
         u.set_stamina( u.get_stamina_max() );
         u.healall( 100 );
+        // Only the avatar's own actions count toward moves_since_last_save, and
+        // quicksave() skips the write while it is 0, so autosave and a client's
+        // save_request / session_ending never saved here.  Count the simulated
+        // turn instead: the world changed even if no one acted.
+        ++moves_since_last_save;
     }
 
     if( cata_mp::is_hosting() ) {
