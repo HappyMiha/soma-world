@@ -9,6 +9,7 @@
 #include "input.h"
 #include "mp_queue.h"
 #include "mp_server.h"
+#include "mp_server_save.h"
 
 #include "activity_actor_definitions.h"
 #include "avatar.h"
@@ -12332,10 +12333,11 @@ bool mp_server_stop_requested()
 bool mp_server_save_for_stop()
 {
     // The host's Save and quit order (ACTION_SAVE in handle_action.cpp): save,
-    // tell the partner, quit.  game::save(), not quicksave(): quicksave() skips
-    // the write when the avatar has not moved since the last save, and the
-    // --server anchor never moves.
-    if( !g->save() ) {
+    // tell the partner, quit.  A full save, not quicksave(): quicksave() skips
+    // the write when nothing happened since the last save.  Through
+    // mp_server_save_world() because game::save() can throw, and nothing above
+    // do_turn() would catch it.
+    if( !mp_server_save_world() ) {
         mp_log( "[cdda-mp] STOP: save FAILED — the server keeps running.  See "
                 "config/debug.log, then create server.stop again to retry." );
         g_server_stop_requested = false;
