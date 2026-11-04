@@ -905,6 +905,16 @@ void game::quicksave()
     if( !moves_since_last_save && !world_generator->active_world->world_saves.empty() ) {
         return;
     }
+    // Named MP callout (rule 4): on a --server nobody sees the message, popup or
+    // redraws below, and an exception from save() would end it.  cata_mp saves,
+    // catches and logs; the counters reset as below, from the time before the save.
+    if( cata_mp::is_server_mode() ) {
+        const time_t now = std::time( nullptr );
+        cata_mp::mp_server_save_world();
+        moves_since_last_save = 0;
+        last_save_timestamp = now;
+        return;
+    }
     add_msg( m_info, _( "Saving game, this may take a while." ) );
 
     static_popup popup;
@@ -916,13 +926,7 @@ void game::quicksave()
     time_t now = std::time( nullptr ); //timestamp for start of saving procedure
 
     //perform save
-    // Named MP callout (rule 4): a --server has no player to see a failed save,
-    // and an exception from save() would end it.  cata_mp saves, catches, logs.
-    if( cata_mp::is_server_mode() ) {
-        cata_mp::mp_server_save_world();
-    } else {
-        save();
-    }
+    save();
     //Now reset counters for autosaving, so we don't immediately autosave after a quicksave or autosave.
     moves_since_last_save = 0;
     last_save_timestamp = now;
