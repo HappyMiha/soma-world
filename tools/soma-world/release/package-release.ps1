@@ -23,7 +23,7 @@ those while it runs, and they hold the settings, logs and worlds of whoever ran
 it.
 
 .EXAMPLE
-.\package-release.ps1 -ClientDir C:\build\SomaWorld-8352fc80c6 -Destination soma-world-8352fc80c6-windows-x64.zip
+.\package-release.ps1 -ClientDir C:\build\SomaWorld-24802636a6 -Destination soma-world-24802636a6-windows-x64.zip
 #>
 param(
     [Parameter(Mandatory)] [string]$ClientDir,

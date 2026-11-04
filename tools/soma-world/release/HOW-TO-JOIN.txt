@@ -47,7 +47,7 @@ SOMA World — як зайти
 - Тримайтеся в межах приблизно 60 клітинок від притулку A-23.
 - Пароля немає, з'єднання не шифроване: не пишіть у грі нічого
   приватного.
-- Сервер пускає лише клієнт цієї самої збірки, 8352fc80c6. Інші збірки
+- Сервер пускає лише клієнт цієї самої збірки, 24802636a6. Інші збірки
   CDDA не підійдуть.
 
 Детальніше: https://github.com/HappyMiha/soma-world
@@ -103,7 +103,7 @@ Good to know:
 - Stay within about 60 tiles of shelter A-23.
 - No password and no encryption: do not type anything private in the
   game.
-- The server admits only a client of this exact build, 8352fc80c6. Other
+- The server admits only a client of this exact build, 24802636a6. Other
   CDDA builds will not work.
 
 More: https://github.com/HappyMiha/soma-world

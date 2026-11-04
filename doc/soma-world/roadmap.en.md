@@ -28,8 +28,9 @@ the way, and the order in which to remove it. File references match the fork at
 ### 1. Small fixes
 
 **Done:** build `9f50a6140a` (PRs #1, #2, #4) went on the server on 4 November
-2026, and that evening `8352fc80c6` replaced it with a fix for names with quotes.
-What follows is what was fixed.
+2026. That evening `8352fc80c6` replaced it with a fix for names with quotes, and
+then `24802636a6`, which also drops other bad client packets. What follows is what
+was fixed.
 
 - **Version in `--client`.** `src/main.cpp` calls `cata_mp::client_connect(...)`
   from the command line without a version, and the server rejects that client. It
@@ -51,6 +52,11 @@ What follows is what was fixed.
   unescaped, and the server parsed the action outside any `try`: a double quote or
   a backslash in a name ended the server for everyone. The client now escapes the
   name, and the server drops a packet that does not parse (`src/mp_gamestate.cpp`).
+- **Bad client packets.** A JSON member of the wrong type, an unknown enum value, a
+  comment in the JSON or very deep nesting ended the server the same way, and a
+  client could write a template file under any path on the server. The server now
+  drops such a packet and still answers the turn, so the player does not hang
+  (`src/mp_gamestate.cpp`, `src/mp_server.cpp`).
 
 ### 2. Several sessions
 

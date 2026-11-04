@@ -20,7 +20,7 @@ limit of this world.
 ## How to connect
 
 1. Download the client from
-   [SOMA World release `8352fc80c6`](https://github.com/HappyMiha/soma-world/releases/tag/soma-8352fc80c6)
+   [SOMA World release `24802636a6`](https://github.com/HappyMiha/soma-world/releases/tag/soma-24802636a6)
    (Windows x64 only for now) and unpack it. The client version must match the
    server exactly, or the server refuses the connection.
 2. Run `cataclysm-tiles.exe`. The build is unsigned, so Windows SmartScreen may
@@ -48,14 +48,15 @@ anything private in the game.
 
 ## What works now
 
-Checked on 4 November 2026. Build `8352fc80c6`, which runs now, differs from the
-previous one, `9f50a6140a`, only by the fix for names with quotes and the `host:`
-label on the bar at the bottom of the screen. After the deploy a scripted client
+Checked on 4 November 2026. Build `24802636a6`, which runs now, differs from
+`9f50a6140a` only in how the server takes client packets (quotes and other
+characters in names, packets it cannot accept) and by the `host:` label on the bar
+at the bottom of the screen. After the deploy a scripted client
 passed the version check through `soma.lokvetia.com:64870`, entered the world, did
 nothing for 90 seconds (the server did not crash), asked for a save and left; the
 world was written to disk. A resident on another PC played in the world through
 the same address for more than five hours with the `9f50a6140a` GUI client.
-Joining with the `8352fc80c6` GUI client has not been checked yet.
+Joining with the `24802636a6` GUI client has not been checked yet.
 
 - **Windowless server.** `cataclysm-tiles --server` loads the world and keeps time
   on its own: 1 turn = 1 second, player events are processed 10 times a second.
@@ -97,8 +98,8 @@ Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
 password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
 variable and never enters Git.
 
-The server build is in `game\SomaWorld-8352fc80c6`. The previous one,
-`game\SomaWorld-9f50a6140a`, stays for a rollback: stop the server, copy
+The server build is in `game\SomaWorld-24802636a6`. The previous one,
+`game\SomaWorld-8352fc80c6`, stays for a rollback: stop the server, copy
 `save\soma` from the current build into it, then `install-autostart.ps1 -GameDir
 <folder>` and `Start-ScheduledTask`. Players then need a client of that build
 again. Logs are in `server-logs` next to the game build:
