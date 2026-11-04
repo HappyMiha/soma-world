@@ -1,0 +1,102 @@
+SOMA World — як зайти
+=====================
+
+Ця тека — вже готовий клієнт. Більше нічого завантажувати не треба.
+Адреса сервера: soma.lokvetia.com:64870
+
+1. Запустіть cataclysm-tiles.exe з цієї теки.
+   Якщо Windows покаже синє вікно SmartScreen (англійською "Windows
+   protected your PC"), натисніть «Докладніше» (More info), а потім «Усе
+   одно запустити» (Run anyway). Точні назви залежать від мови Windows.
+2. Дочекайтеся головного меню: великий напис Cataclysm: Dark Days Ahead і
+   рядок пунктів унизу. Виберіть CO-OP (клавіша O), потім Join a session
+   (клавіша J).
+3. У вікні Host address введіть soma.lokvetia.com:64870 і натисніть Enter.
+   Наступного разу замість цього вікна відкриється список адрес: виберіть
+   у ньому soma.lokvetia.com:64870.
+4. У вікні Save as (optional label ...) просто натисніть Enter.
+5. З'явиться повідомлення:
+       Connected to ...'s game.
+       World: "soma"
+       Press a key to continue.
+   Натисніть будь-яку клавішу, і меню вибору персонажа відкриється саме.
+   Рядок унизу екрана "re-enter Join to pick character" тут нічого не
+   вимагає: Join a session вдруге вибирати не треба.
+6. У меню Joining "soma" виберіть New character, а наступного разу —
+   Load existing character.
+7. Найшвидше — Random Character (клавіша r). Гра вантажиться близько
+   хвилини. На екрані персонажа натискайте Tab, доки не дійдете до
+   останньої вкладки SUMMARY, і натисніть Tab ще раз. На запит
+       Are you SURE you're finished? (Case Sensitive)
+   натисніть велику Y (Shift+Y) або кнопку Yes. Enter тут означає No.
+8. Якщо гра попросить вибрати бойовий стиль (Select a style.), виберіть
+   будь-який клавішею Enter і так само підтвердіть великою Y.
+9. Персонаж з'явиться у світі, у притулку A-23 (evac shelter A-23).
+
+Вийти: Shift+S, і на запит Save and disconnect? — велика Y. Персонаж
+збережеться на цьому ПК, а сервер збереже спільний світ.
+
+Варто знати:
+- Одночасно грати може лише один гравець. Не заходьте, поки у світі хтось
+  є: сервер вас не відхилить, а прийме за того самого гравця, що
+  під'єднався повторно. Що тоді буде з грою першого, ніхто не перевіряв.
+- Гра покрокова: поки ви думаєте, світ чекає на вас.
+- Тримайтеся в межах приблизно 60 клітинок від притулку A-23.
+- Пароля немає, з'єднання не шифроване: не пишіть у грі нічого
+  приватного.
+- Сервер пускає лише клієнт цієї самої збірки, 9f50a6140a. Інші збірки
+  CDDA не підійдуть.
+
+Детальніше: https://github.com/HappyMiha/soma-world
+
+
+SOMA World — how to join
+========================
+
+This folder is the complete client. There is nothing else to download.
+Server address: soma.lokvetia.com:64870
+
+1. Run cataclysm-tiles.exe from this folder.
+   If Windows shows a blue SmartScreen window ("Windows protected your
+   PC"), click "More info", then "Run anyway".
+2. Wait for the main menu: the large Cataclysm: Dark Days Ahead title and
+   a row of items at the bottom. Choose CO-OP (key O), then Join a session
+   (key J).
+3. In the Host address window type soma.lokvetia.com:64870 and press
+   Enter. Next time a list of addresses opens instead: pick
+   soma.lokvetia.com:64870 there.
+4. In the Save as (optional label ...) window just press Enter.
+5. This message appears:
+       Connected to ...'s game.
+       World: "soma"
+       Press a key to continue.
+   Press any key and the character menu opens by itself. The line at the
+   bottom of the screen, "re-enter Join to pick character", asks nothing
+   of you here: do not choose Join a session again.
+6. In the Joining "soma" menu choose New character; next time, Load
+   existing character.
+7. Random Character (key r) is the fastest. The game loads for about a
+   minute. On the character screen press Tab until you reach the last
+   tab, SUMMARY, then press Tab once more. At
+       Are you SURE you're finished? (Case Sensitive)
+   press capital Y (Shift+Y) or the Yes button. Enter means No there.
+8. If the game asks you to pick a fighting style (Select a style.), pick
+   any with Enter and confirm with capital Y as well.
+9. Your character appears in the world, in evac shelter A-23.
+
+To leave: Shift+S, then capital Y at Save and disconnect?. Your character
+is saved on this PC and the server saves the shared world.
+
+Good to know:
+- Only one player can play at a time. Do not join while someone is in
+  the world: the server will not refuse you, it takes you for the same
+  player reconnecting. Nobody has tested what that does to the first
+  player's game.
+- The game is turn-based: while you think, the world waits for you.
+- Stay within about 60 tiles of shelter A-23.
+- No password and no encryption: do not type anything private in the
+  game.
+- The server admits only a client of this exact build, 9f50a6140a. Other
+  CDDA builds will not work.
+
+More: https://github.com/HappyMiha/soma-world

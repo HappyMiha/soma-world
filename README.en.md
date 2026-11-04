@@ -23,10 +23,17 @@ limit of this world.
    [SOMA World release `9f50a6140a`](https://github.com/HappyMiha/soma-world/releases/tag/soma-9f50a6140a)
    (Windows x64 only for now) and unpack it. The client version must match the
    server exactly, or the server refuses the connection.
-2. In the game's main menu: `CO-OP > Join a session`, address
+2. Run `cataclysm-tiles.exe`. The build is unsigned, so Windows SmartScreen may
+   stop it: "More info", then "Run anyway".
+3. In the game's main menu: `CO-OP > Join a session`, address
    `soma.lokvetia.com:64870`.
-3. After the connection message, open `Join a session` again, create a character
-   and enter the world.
+4. After the connection message press any key: the character menu opens by
+   itself, and there is no need to choose `Join a session` again. Choose
+   `New character`, and `Load existing character` next time.
+
+Step-by-step instructions covering every window are in the archive next to
+`cataclysm-tiles.exe`, in `HOW-TO-JOIN.txt`; its source is
+[`tools/soma-world/release`](tools/soma-world/release).
 
 The command line works too: `--client soma.lokvetia.com:64870`. The same, with
 `--password <password>`, is the way into a server that has a password: the `Join`
@@ -126,6 +133,10 @@ the whole process tree.
 ## Known problems
 
 - **One player at a time**: see the [road to N players](doc/soma-world/roadmap.en.md).
+  The server does not refuse a second player: a join from the menu always sends
+  the name `player2`, so the server takes a second join for the first player
+  reconnecting. Nobody has tested what that does to the first player's game, so
+  do not join while someone is in the world.
 - **A hard stop loses what is unsaved.** A killed process, an ended task or a PC
   turned off returns the world to its last save: up to 5 minutes of play with
   nobody connected, longer while a player acts slowly.
