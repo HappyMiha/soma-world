@@ -32,6 +32,9 @@ SOMA World — як зайти
 8. Якщо гра попросить вибрати бойовий стиль (Select a style.), виберіть
    будь-який клавішею Enter і так само підтвердіть великою Y.
 9. Персонаж з'явиться у світі, у притулку A-23 (evac shelter A-23).
+   Ім'я на початку смуги внизу екрана, Tyesha, — не ваше. Це хост:
+   персонаж-якір сервера Tyesha 'Kiwi' Leach, поруч його настрій і
+   здоров'я. Ваше ім'я видно на листі персонажа (клавіша @).
 
 Вийти: Shift+S, і на запит Save and disconnect? — велика Y. Персонаж
 збережеться на цьому ПК, а сервер збереже спільний світ.
@@ -83,6 +86,10 @@ Server address: soma.lokvetia.com:64870
 8. If the game asks you to pick a fighting style (Select a style.), pick
    any with Enter and confirm with capital Y as well.
 9. Your character appears in the world, in evac shelter A-23.
+   The name at the start of the bar at the bottom of the screen, Tyesha,
+   is not yours. It is the host: the server's anchor character, Tyesha
+   'Kiwi' Leach, with its mood and health next to it. Your own name is
+   on the character sheet (key @).
 
 To leave: Shift+S, then capital Y at Save and disconnect?. Your character
 is saved on this PC and the server saves the shared world.

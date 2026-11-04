@@ -30,6 +30,9 @@ limit of this world.
 4. After the connection message press any key: the character menu opens by
    itself, and there is no need to choose `Join a session` again. Choose
    `New character`, and `Load existing character` next time.
+5. The name at the start of the bar at the bottom of the screen, `Tyesha`,
+   belongs to the host, the server's anchor character, not to you. Your own name
+   is on the character sheet (`@`).
 
 Step-by-step instructions covering every window are in the archive next to
 `cataclysm-tiles.exe`, in `HOW-TO-JOIN.txt`; its source is
