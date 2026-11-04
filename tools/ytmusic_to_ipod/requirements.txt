@@ -1,0 +1,5 @@
+ytmusicapi>=1.10
+yt-dlp[default]
+mutagen>=1.45
+Pillow>=9.1
+pywin32; sys_platform == "win32"
