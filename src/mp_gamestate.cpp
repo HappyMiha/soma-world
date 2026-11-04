@@ -1868,6 +1868,15 @@ struct mp_hud_t {
             pname = pname.substr( 0, 8 );
         }
         int x = 1;
+        // On a client the partner is the host, which on a dedicated server is
+        // the server's anchor character.  Shown bare, its name was taken for the
+        // player's own (2026-11-04), so the client says whose name it is.
+        if( is_client_mode() ) {
+            //~ Co-op panel on a client, printed in front of the host's name.
+            const std::string role = _( "host:" );
+            mvwprintz( win, point( x, crow ), c_light_gray, "%s", role.c_str() );
+            x += utf8_width( role ) + 1;
+        }
         mvwprintz( win, point( x, crow ), c_white, "%-8s", pname.c_str() );
         x += 9;
 
@@ -6620,8 +6629,16 @@ static void handle_remote_action( const std::string &/*name*/, const std::string
 
     // Parse the full action JSON once here so char_stats and other top-level
     // fields are accessible without re-parsing inside each action block.
-    JsonValue jv_top = json_loader::from_string( msg );
-    JsonObject jo = jv_top.get_object();
+    // A packet that does not parse is dropped.  Its JsonError used to leave the
+    // game loop uncaught and end the server for every player: reproduced
+    // 2026-11-04 with a char_stats name holding a double quote, which clients
+    // up to 9f50a6140a sent unescaped.
+    const std::optional<JsonValue> jv_top = json_loader::from_string_opt( msg );
+    if( !jv_top || !jv_top->test_object() ) {
+        mp_log( "[cdda-mp] ACTION-REJECT: not a JSON object, dropped: " + msg.substr( 0, 120 ) );
+        return;
+    }
+    JsonObject jo = jv_top->get_object();
     jo.allow_omitted_members();
 
     // Track the client's current activity for HUD + partner-notice display
@@ -17167,7 +17184,9 @@ std::string client_enrich_action( const std::string &json )
     // (spawned with the "player2" placeholder, since the client connects from
     // the main menu before its character exists). Renames the on-map @ and the
     // sidebar nearby-list; messages already use the real name from packets.
-    char_stats += "\"name\":\"" + av.get_name() + "\",";
+    // Escaped: a double quote or a backslash in the name made the whole action
+    // unparseable, and the host's parse of it ended the server (2026-11-04).
+    char_stats += "\"name\":\"" + json_escape_str( av.get_name() ) + "\",";
     char_stats += "\"str\":" + std::to_string( av.get_str_base() );
     char_stats += ",\"dex\":" + std::to_string( av.get_dex_base() );
     char_stats += ",\"int\":" + std::to_string( av.get_int_base() );
@@ -21701,7 +21720,7 @@ std::string serialize_remote_player_state( bool skip_tile_scan )
            // the gap between the two start dates (2026-07-19: 218 days vs ~1h).
            "\"start_of_game\":" + std::to_string( to_turn<int>( calendar::start_of_game ) ) + ","
            "\"start_of_cata\":" + std::to_string( to_turn<int>( calendar::start_of_cataclysm ) ) + ","
-           "\"host_name\":\"" + host.name + "\","
+           "\"host_name\":\"" + json_escape_str( host.name ) + "\","
            "\"pos\":{\"x\":" + std::to_string( pos.x() ) +
            ",\"y\":" + std::to_string( pos.y() ) +
            ",\"z\":" + std::to_string( pos.z() ) + "},"
