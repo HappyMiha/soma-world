@@ -4,9 +4,10 @@
 Що робить скрипт:
   1. Читає вашу головну сторінку YouTube Music (через ytmusicapi і cookies
      з браузера, де ви увійшли в акаунт) і бере полицю «Quick picks».
-  2. Завантажує кожен трек через yt-dlp у формат, який розуміє iPod
-     (m4a/AAC за замовчуванням, або mp3).
-  3. Записує теги (назва, виконавець, альбом) і квадратну обкладинку.
+  2. З --fill далі бере «радіо» від кожного треку «Швидкого вибору» (те, що
+     YouTube Music грає, коли ви натискаєте на трек), поки на плеєрі є місце.
+  3. Завантажує кожен трек через yt-dlp (m4a/AAC або mp3), записує теги й
+     квадратну обкладинку.
   4. Створює плейлист .m3u8 і, за бажанням:
        --itunes   додає треки в плейлист iTunes (Windows) або Музики (macOS),
                   звідки iPod зі стандартною прошивкою синхронізується;
@@ -14,8 +15,8 @@
 
 Приклади:
   python quickpicks_to_ipod.py --browser firefox --list
-  python quickpicks_to_ipod.py --browser firefox --itunes --sync
-  python quickpicks_to_ipod.py --cookies cookies.txt --rockbox /media/IPOD
+  python quickpicks_to_ipod.py --browser firefox --fill --max-size 28G --itunes
+  python quickpicks_to_ipod.py --browser firefox --fill --rockbox /media/IPOD
 
 Детальніше: README.md поруч зі скриптом.
 """
@@ -23,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import collections
 import datetime as dt
 import importlib
 import io
@@ -44,6 +46,9 @@ USER_AGENT = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
               "Chrome/130.0.0.0 Safari/537.36")
 MANIFEST_NAME = ".quickpicks.json"
 COVER_SIZE = 500
+RADIO_LENGTH = 50             # tracks asked for per radio in --fill mode
+MAX_FAILS_IN_ROW = 10         # probably throttled by YouTube: stop for now
+DEFAULT_TRACK_SIZE = 5_000_000
 BAD_FILENAME_CHARS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
 
 
@@ -79,6 +84,17 @@ def split_browser(spec: str) -> tuple[str, str | None]:
     """'firefox' -> ('firefox', None); 'chrome:Profile 1' -> (..., ...)."""
     name, _, profile = spec.partition(":")
     return name.strip().lower(), (profile.strip() or None)
+
+
+def parse_size(text: str) -> int:
+    """'28G', '500M', '1.5T', '30' (=GB) -> bytes, decimal like on iPods."""
+    m = re.fullmatch(r"\s*(\d+(?:[.,]\d+)?)\s*([KMGT]?)B?\s*", text, re.I)
+    if not m:
+        raise argparse.ArgumentTypeError(
+            f"не розумію розмір «{text}», приклад: 28G або 500M")
+    number = float(m.group(1).replace(",", "."))
+    unit = m.group(2).upper() or "G"
+    return int(number * 1000 ** ("KMGT".index(unit) + 1))
 
 
 # --------------------------------------------------------------------------
@@ -147,7 +163,7 @@ def make_ytmusic(cookie: str, authuser: int, brand_account: str | None):
 
 
 # --------------------------------------------------------------------------
-# Quick picks
+# Quick picks and radio
 # --------------------------------------------------------------------------
 
 def find_shelf(home: list[dict], wanted: str | None) -> dict | None:
@@ -170,7 +186,10 @@ def to_track(item: dict) -> dict | None:
     artists = [a.get("name") for a in (item.get("artists") or [])
                if isinstance(a, dict) and a.get("name")]
     album = item.get("album") or {}
-    thumbs = item.get("thumbnails") or []
+    # Home shelves use "thumbnails", watch playlists (radio) "thumbnail".
+    thumbs = item.get("thumbnails") or item.get("thumbnail") or []
+    if not isinstance(thumbs, list):
+        thumbs = []
     return {
         "videoId": video_id,
         "title": item.get("title") or video_id,
@@ -198,24 +217,68 @@ def get_quick_picks(yt, shelf: str | None) -> list[dict]:
     return tracks
 
 
+def track_key(track: dict) -> tuple[str, str]:
+    artist = track["artists"][0] if track["artists"] else ""
+    return track["title"].strip().casefold(), artist.strip().casefold()
+
+
+def candidates(yt, picks: list[dict], fill: bool):
+    """Quick picks first; with fill, radio from them (breadth-first).
+
+    Radio is fetched lazily, only when more tracks are needed.
+    """
+    seen_ids: set[str] = set()
+    seen_keys: set[tuple[str, str]] = set()
+
+    def fresh(track: dict) -> bool:
+        key = track_key(track)
+        if track["videoId"] in seen_ids or key in seen_keys:
+            return False  # also skips a song's music-video duplicate
+        seen_ids.add(track["videoId"])
+        seen_keys.add(key)
+        return True
+
+    seeds: collections.deque[str] = collections.deque()
+    for track in picks:
+        if fresh(track):
+            seeds.append(track["videoId"])
+            yield track
+    while fill and seeds:
+        seed = seeds.popleft()
+        try:
+            radio = yt.get_watch_playlist(videoId=seed, radio=True,
+                                          limit=RADIO_LENGTH)
+        except Exception as exc:  # noqa: BLE001 - skip this seed
+            print(f"    радіо для {seed} недоступне: {exc}")
+            continue
+        for item in radio.get("tracks") or []:
+            track = to_track(item)
+            if track and fresh(track):
+                seeds.append(track["videoId"])
+                yield track
+
+
 # --------------------------------------------------------------------------
 # Download, cover art, tags
 # --------------------------------------------------------------------------
 
-def make_ydl(yt_dlp, tmpdir: Path, fmt: str, bitrate: int, args):
+def make_ydl(yt_dlp, tmpdir: Path, args):
     opts = {
         # m4a: take YouTube's AAC stream as is (no re-encoding).
-        "format": ("bestaudio[ext=m4a]/bestaudio/best" if fmt == "m4a"
-                   else "bestaudio/best"),
+        "format": ("bestaudio[ext=m4a]/bestaudio/best"
+                   if args.format == "m4a" else "bestaudio/best"),
         "outtmpl": str(tmpdir / "%(id)s.%(ext)s"),
         "noplaylist": True,
         "quiet": True,
         "noprogress": True,
         "retries": 5,
+        # Short pauses make YouTube less likely to throttle long runs.
+        "sleep_interval": 1,
+        "max_sleep_interval": 4,
         "postprocessors": [{
             "key": "FFmpegExtractAudio",
-            "preferredcodec": fmt,
-            "preferredquality": str(bitrate),
+            "preferredcodec": args.format,
+            "preferredquality": str(args.bitrate),
         }],
     }
     if args.ytdlp_cookies:
@@ -352,6 +415,72 @@ def unique_path(folder: Path, base: str, ext: str, video_id: str) -> Path:
     return path
 
 
+def download_track(ydl, track: dict, tmpdir: Path, out_dir: Path, fmt: str,
+                   old: dict | None, comment: str) -> dict:
+    src, info = download_audio(ydl, track["videoId"], tmpdir, fmt)
+    meta = {
+        "title": track["title"],
+        "artist": artist_of(track, info),
+        "album": track["album"] or info.get("album"),
+        "year": info.get("release_year"),
+    }
+    tag_file(src, meta, make_cover(track), comment)
+    if old and old.get("file", "").endswith(f".{fmt}"):
+        dest = out_dir / old["file"]  # a re-download keeps its file name
+    else:
+        base = safe_name(f"{meta['artist']} - {meta['title']}")
+        dest = unique_path(out_dir, base, fmt, track["videoId"])
+    if dest.exists():
+        dest.unlink()  # Windows can't rename over an existing file
+    shutil.move(str(src), str(dest))
+    return {**meta, "file": dest.name, "duration": info.get("duration"),
+            "videoId": track["videoId"]}
+
+
+def existing_entry(manifest: dict, track: dict, out_dir: Path,
+                   args) -> dict | None:
+    old = manifest.get(track["videoId"])
+    if (old and not args.redownload
+            and old.get("file", "").endswith(f".{args.format}")
+            and (out_dir / old["file"]).exists()):
+        return old
+    return None
+
+
+def save_manifest(path: Path, manifest: dict):
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(manifest, ensure_ascii=False, indent=1),
+                   encoding="utf-8")
+    tmp.replace(path)  # atomic: Ctrl+C can't leave a half-written file
+
+
+# --------------------------------------------------------------------------
+# Free space
+# --------------------------------------------------------------------------
+
+class Space:
+    """Decides whether one more track still fits on the player."""
+
+    def __init__(self, max_bytes: int | None, device: Path | None,
+                 reserve: int):
+        self.max_bytes = max_bytes  # whole playlist budget (iTunes sync)
+        self.device = device        # mounted player (Rockbox): real space
+        self.reserve = reserve
+        self.used = 0
+
+    def fits(self, size: int, device_size: int) -> bool:
+        if self.max_bytes is not None and self.used + size > self.max_bytes:
+            return False
+        if self.device is not None and device_size:
+            free = shutil.disk_usage(self.device).free
+            if free - device_size < self.reserve:
+                return False
+        return True
+
+    def take(self, size: int):
+        self.used += size
+
+
 # --------------------------------------------------------------------------
 # Playlists and iPod targets
 # --------------------------------------------------------------------------
@@ -365,8 +494,11 @@ def write_m3u8(path: Path, entries: list[dict], prefix: str = ""):
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
-def copy_to_rockbox(mount: Path, files: list[Path], entries: list[dict],
-                    subdir: str, playlist_name: str):
+def rockbox_subdir(subdir: str) -> str:
+    return subdir.replace("\\", "/").strip("/")
+
+
+def rockbox_prepare(mount: Path, subdir: str) -> Path:
     if not mount.is_dir():
         die(f"{mount} не існує або це не тека (iPod не підключено?)")
     if not (mount / ".rockbox").is_dir():
@@ -376,38 +508,48 @@ def copy_to_rockbox(mount: Path, files: list[Path], entries: list[dict],
                 "--itunes (Windows/macOS) або Strawberry/Rhythmbox на Linux.")
         print("Попередження: теки .rockbox немає, копіюю як на звичайний "
               "USB-плеєр.")
-    subdir = subdir.replace("\\", "/").strip("/")
-    dest = mount / subdir
+    dest = mount / rockbox_subdir(subdir)
     dest.mkdir(parents=True, exist_ok=True)
-    for src in files:
-        target = dest / src.name
-        if target.exists() and target.stat().st_size == src.stat().st_size:
-            continue
-        shutil.copyfile(src, target)  # copyfile: FAT32 dislikes chmod
+    return dest
+
+
+def rockbox_needs_copy(src: Path, dest_dir: Path) -> bool:
+    target = dest_dir / src.name
+    return not (target.exists()
+                and target.stat().st_size == src.stat().st_size)
+
+
+def rockbox_playlist(mount: Path, subdir: str, entries: list[dict],
+                     playlist_name: str):
     playlists = mount / "Playlists"
     playlists.mkdir(exist_ok=True)
     pl_path = playlists / f"{safe_name(playlist_name)}.m3u8"
-    write_m3u8(pl_path, entries, prefix=f"/{subdir}/")
-    print(f"Скопійовано {len(files)} треків у {dest}")
+    write_m3u8(pl_path, entries, prefix=f"/{rockbox_subdir(subdir)}/")
     print(f"Плейлист Rockbox: {pl_path}")
 
 
 APPLESCRIPT = r"""
 on run argv
     set plName to item 1 of argv
+    set listText to read (POSIX file (item 2 of argv)) as «class utf8»
     set theFiles to {}
-    repeat with i from 2 to (count of argv)
-        set end of theFiles to ((POSIX file (item i of argv)) as alias)
+    repeat with p in paragraphs of listText
+        set s to contents of p
+        if s is not "" then
+            set end of theFiles to ((POSIX file s) as alias)
+        end if
     end repeat
     tell application "__APP__"
-        if not (exists user playlist plName) then
-            make new user playlist with properties {name:plName}
-        end if
-        set pl to user playlist plName
-        try
-            delete every track of pl
-        end try
-        add theFiles to pl
+        with timeout of 3600 seconds
+            if not (exists user playlist plName) then
+                make new user playlist with properties {name:plName}
+            end if
+            set pl to user playlist plName
+            try
+                delete every track of pl
+            end try
+            add theFiles to pl
+        end timeout
     end tell
 end run
 """
@@ -419,9 +561,16 @@ def add_to_music_macos(files: list[Path], playlist_name: str):
     # macOS 10.15 Catalina replaced iTunes with the Music app.
     app = "Music" if (parts[0], parts[1]) >= (10, 15) else "iTunes"
     script = APPLESCRIPT.replace("__APP__", app)
-    cmd = ["osascript", "-e", script, playlist_name,
-           *[str(f.resolve()) for f in files]]
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    # Paths go through a file: thousands of them would not fit in argv.
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".txt",
+                                     delete=False) as fh:
+        fh.write("\n".join(str(f.resolve()) for f in files) + "\n")
+        list_path = fh.name
+    try:
+        res = subprocess.run(["osascript", "-e", script, playlist_name,
+                              list_path], capture_output=True, text=True)
+    finally:
+        Path(list_path).unlink(missing_ok=True)
     if res.returncode != 0:
         die(f"{app} не прийняв треки: {res.stderr.strip()}\n"
             "Дозвольте терміналу керувати застосунком «Музика»: Системні "
@@ -450,10 +599,12 @@ def add_to_itunes_windows(files: list[Path], playlist_name: str, sync: bool):
         tracks = playlist.Tracks
         for idx in range(tracks.Count, 0, -1):
             tracks.Item(idx).Delete()
-    for f in files:
+    for n, f in enumerate(files, 1):
         status = playlist.AddFile(str(f.resolve()))
         while status is not None and status.InProgress:
             time.sleep(0.2)
+        if n % 100 == 0:
+            print(f"  додано в iTunes {n}/{len(files)}")
     print(f"Плейлист «{playlist_name}» оновлено в iTunes.")
     if sync:
         itunes.UpdateIPod()
@@ -498,7 +649,17 @@ def parse_args(argv=None):
                    help="інша полиця головної сторінки замість Quick picks")
     p.add_argument("--list", action="store_true",
                    help="лише показати треки, нічого не завантажувати")
-    p.add_argument("--limit", type=int, help="взяти лише перші N треків")
+    p.add_argument("--fill", action="store_true",
+                   help="після «Швидкого вибору» брати радіо від його "
+                        "треків, поки на плеєрі є місце")
+    p.add_argument("--max-size", type=parse_size, metavar="SIZE",
+                   help="скільки музики записати, напр. 28G або 500M "
+                        "(для --itunes: вільне місце на iPod)")
+    p.add_argument("--reserve", type=parse_size, default="300M",
+                   metavar="SIZE",
+                   help="скільки лишити вільним на плеєрі з --rockbox "
+                        "(типово 300M)")
+    p.add_argument("--limit", type=int, help="не більше N треків")
     p.add_argument("--out", type=Path, default=Path("QuickPicks"),
                    help="тека для музики (типово ./QuickPicks)")
     p.add_argument("--format", choices=("m4a", "mp3"), default="m4a",
@@ -535,6 +696,10 @@ def main(argv=None) -> int:
             pass
 
     args = parse_args(argv)
+    if args.fill and args.max_size is None and args.rockbox is None:
+        die("для --fill скажіть, скільки місця заповнювати: --max-size 28G "
+            "(вільне місце на iPod, яке показує iTunes/Finder) або "
+            "--rockbox КОРІНЬ_IPOD (тоді місце рахується автоматично).")
     playlist_name = args.playlist_name
     if args.dated:
         playlist_name += f" {dt.date.today().isoformat()}"
@@ -547,11 +712,9 @@ def main(argv=None) -> int:
     except Exception:  # noqa: BLE001 - older ytmusicapi / not critical
         pass
 
-    tracks = get_quick_picks(yt, args.shelf)
-    if args.limit:
-        tracks = tracks[:args.limit]
-    print(f"Знайдено {len(tracks)} треків:")
-    for i, t in enumerate(tracks, 1):
+    picks = get_quick_picks(yt, args.shelf)
+    print(f"«Швидкий вибір»: {len(picks)} треків:")
+    for i, t in enumerate(picks, 1):
         artists = ", ".join(t["artists"]) or "?"
         print(f"  {i:2}. {artists} — {t['title']}")
     if args.list:
@@ -570,76 +733,97 @@ def main(argv=None) -> int:
     except (OSError, ValueError):
         manifest = {}
 
+    rb_mount = args.rockbox.expanduser() if args.rockbox else None
+    rb_dir = (rockbox_prepare(rb_mount, args.rockbox_dir)
+              if rb_mount else None)
+    space = Space(args.max_size, rb_dir, args.reserve)
+    if args.fill:
+        print("\nРежим --fill: після «Швидкого вибору» беру радіо від його "
+              "треків, поки є місце. Це може тривати години; Ctrl+C зупиняє "
+              "і зберігає вже завантажене.\n")
+
     comment = f"YouTube Music Quick Picks {dt.date.today().isoformat()}"
     entries: list[dict] = []
     failed: list[str] = []
+    total_bytes = 0
+    fails_in_row = 0
+    stop_reason = None
+    of_total = "" if args.fill else f"/{len(picks)}"
     with tempfile.TemporaryDirectory(prefix="quickpicks-") as tmp:
         tmpdir = Path(tmp)
-        with make_ydl(yt_dlp, tmpdir, args.format, args.bitrate,
-                      args) as ydl:
-            for i, t in enumerate(tracks, 1):
-                label = f"{', '.join(t['artists']) or '?'} — {t['title']}"
-                prefix = f"[{i}/{len(tracks)}]"
-                old = manifest.get(t["videoId"])
-                if (old and not args.redownload
-                        and old.get("file", "").endswith(f".{args.format}")
-                        and (out_dir / old["file"]).exists()):
-                    print(f"{prefix} вже є: {label}")
-                    entries.append(old)
-                    continue
-                print(f"{prefix} завантажую: {label}")
-                try:
-                    src, info = download_audio(ydl, t["videoId"], tmpdir,
-                                               args.format)
-                    meta = {
-                        "title": t["title"],
-                        "artist": artist_of(t, info),
-                        "album": t["album"] or info.get("album"),
-                        "year": info.get("release_year"),
-                    }
-                    tag_file(src, meta, make_cover(t), comment)
-                    if (old and old.get("file", "").endswith(
-                            f".{args.format}")):
-                        dest = out_dir / old["file"]  # --redownload
+        with make_ydl(yt_dlp, tmpdir, args) as ydl:
+            try:
+                for t in candidates(yt, picks, args.fill):
+                    if args.limit and len(entries) >= args.limit:
+                        stop_reason = f"досягнуто --limit {args.limit}"
+                        break
+                    tag = f"[{len(entries) + 1}{of_total}]"
+                    label = f"{', '.join(t['artists']) or '?'} — {t['title']}"
+                    entry = existing_entry(manifest, t, out_dir, args)
+                    if entry is None:
+                        estimate = (total_bytes // len(entries) if entries
+                                    else DEFAULT_TRACK_SIZE)
+                        if not space.fits(estimate,
+                                          estimate if rb_dir else 0):
+                            stop_reason = "закінчилося місце"
+                            break
+                        print(f"{tag} завантажую: {label}")
+                        try:
+                            entry = download_track(
+                                ydl, t, tmpdir, out_dir, args.format,
+                                manifest.get(t["videoId"]), comment)
+                        except Exception as exc:  # noqa: BLE001
+                            print(f"    не вдалося: {exc}")
+                            failed.append(label)
+                            fails_in_row += 1
+                            if fails_in_row >= MAX_FAILS_IN_ROW:
+                                stop_reason = (
+                                    f"{MAX_FAILS_IN_ROW} помилок поспіль — "
+                                    "схоже, YouTube тимчасово обмежив "
+                                    "завантаження; запустіть пізніше, уже "
+                                    "завантажене не повторюватиметься")
+                                break
+                            continue
+                        fails_in_row = 0
+                        manifest[t["videoId"]] = entry
+                        save_manifest(manifest_path, manifest)
                     else:
-                        base = safe_name(
-                            f"{meta['artist']} - {meta['title']}")
-                        dest = unique_path(out_dir, base, args.format,
-                                           t["videoId"])
-                    if dest.exists():
-                        dest.unlink()  # Windows can't rename over a file
-                    shutil.move(str(src), str(dest))
-                except KeyboardInterrupt:
-                    raise
-                except Exception as exc:  # noqa: BLE001 - keep going
-                    print(f"    не вдалося: {exc}")
-                    failed.append(label)
-                    continue
-                entry = {**meta, "file": dest.name,
-                         "duration": info.get("duration"),
-                         "videoId": t["videoId"]}
-                manifest[t["videoId"]] = entry
-                entries.append(entry)
-                manifest_path.write_text(
-                    json.dumps(manifest, ensure_ascii=False, indent=1),
-                    encoding="utf-8")
+                        print(f"{tag} вже є: {label}")
+                    path = out_dir / entry["file"]
+                    size = path.stat().st_size
+                    copy = (rb_dir is not None
+                            and rockbox_needs_copy(path, rb_dir))
+                    if not space.fits(size, size if copy else 0):
+                        stop_reason = "закінчилося місце"
+                        break
+                    if copy:
+                        shutil.copyfile(path, rb_dir / path.name)
+                    space.take(size)
+                    total_bytes += size
+                    entries.append(entry)
+            except KeyboardInterrupt:
+                stop_reason = "перервано (Ctrl+C)"
 
     if not entries:
-        die("жоден трек не завантажився.")
+        die("жоден трек не завантажився"
+            + (f": {stop_reason}." if stop_reason else "."))
 
     pl_path = out_dir / f"{safe_name(playlist_name)}.m3u8"
     write_m3u8(pl_path, entries)
     files = [out_dir / e["file"] for e in entries]
-    print(f"\nГотово: {len(entries)} треків у {out_dir}")
+    print(f"\nГотово: {len(entries)} треків, {total_bytes / 1e9:.2f} ГБ, "
+          f"у {out_dir}")
+    if stop_reason:
+        print(f"Зупинено: {stop_reason}.")
     print(f"Плейлист: {pl_path}")
     if failed:
-        print(f"Не вдалося ({len(failed)}): " + "; ".join(failed))
+        shown = "; ".join(failed[:20]) + (" …" if len(failed) > 20 else "")
+        print(f"Не вдалося ({len(failed)}): {shown}")
 
     if args.itunes:
         add_to_itunes(files, playlist_name, args.sync)
-    elif args.rockbox:
-        copy_to_rockbox(args.rockbox.expanduser(), files, entries,
-                        args.rockbox_dir, playlist_name)
+    elif rb_mount is not None:
+        rockbox_playlist(rb_mount, args.rockbox_dir, entries, playlist_name)
     return 0
 
 
