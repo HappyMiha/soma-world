@@ -170,6 +170,13 @@ static int input_callback( ImGuiInputTextCallbackData *data )
     if( data->EventFlag == ImGuiInputTextFlags_CallbackEdit ) {
         int max = popup->get_max_input_length();
         if( max > 0 && data->BufTextLen > max ) {
+            // The limit counts bytes.  Back off to the start of a character, so
+            // a long Cyrillic name is not cut in the middle of a letter, which
+            // leaves invalid UTF-8 behind.
+            while( max > 0 && ( static_cast<unsigned char>( data->Buf[max] ) & 0xC0 ) == 0x80 ) {
+                --max;
+            }
+            data->Buf[max] = '\0';
             data->BufTextLen = max;
             data->SelectionStart = data->BufTextLen;
             data->SelectionEnd = data->BufTextLen;

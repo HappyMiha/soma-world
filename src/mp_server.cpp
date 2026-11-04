@@ -151,9 +151,14 @@ static std::string mp_compress_frame( const std::string &msg )
 // real client, which probes microseconds after connecting.
 static constexpr int MP_PROBE_DEADLINE_S = 20;
 
+// Longest line a peer may send.  Without a limit, a peer that never sends a
+// newline grows read_buf until the server runs out of memory.  Far above any
+// packet seen: the longest in a five-hour session on 2026-11-04 was 8 KB.
+static constexpr std::size_t MP_MAX_LINE_BYTES = 16 * 1024 * 1024;
+
 struct client_session : public std::enable_shared_from_this<client_session> {
     tcp::socket socket;
-    asio::streambuf read_buf;
+    asio::streambuf read_buf{ MP_MAX_LINE_BYTES };
     std::string name;
     bool authenticated = false;
     // "ip:port" of the far end, captured at construction — remote_endpoint() is
@@ -377,6 +382,10 @@ struct client_session : public std::enable_shared_from_this<client_session> {
             asio::async_read_until( socket, read_buf, '\n',
             [self]( std::error_code ec, std::size_t ) {
                 if( ec ) {
+                    if( ec == asio::error::not_found ) {
+                        mp_log( "[cdda-mp] READ-REJECT: " + self->peer + " sent a line longer than " +
+                                std::to_string( MP_MAX_LINE_BYTES ) + " bytes; disconnecting" );
+                    }
                     self->disconnect();
                     return;
                 }
@@ -586,6 +595,42 @@ static std::string json_get_str( const std::string &json, const std::string &key
     return "";
 }
 
+// Screens a client line before the game thread parses it.  flatbuffers' parser
+// takes // and /* */ comments and single-quoted strings, but CDDA's TextJsonIn,
+// which re-reads the text to report errors and unread members, throws on them,
+// in one place from a destructor, where no catch helps.  And a document nested
+// deeper than the parser's own limit (FLATBUFFERS_MAX_PARSING_DEPTH, 64) that
+// also repeats a key sends that re-read into unbounded recursion.  Real packets
+// have none of this.  Returns why the line was refused, or an empty string.
+static std::string mp_refuse_line( const std::string &line )
+{
+    int depth = 0;
+    bool in_string = false;
+    bool escaped = false;
+    for( const char c : line ) {
+        if( in_string ) {
+            if( escaped ) {
+                escaped = false;
+            } else if( c == '\\' ) {
+                escaped = true;
+            } else if( c == '"' ) {
+                in_string = false;
+            }
+        } else if( c == '"' ) {
+            in_string = true;
+        } else if( c == '{' || c == '[' ) {
+            if( ++depth > 64 ) {
+                return "nested deeper than 64 levels";
+            }
+        } else if( c == '}' || c == ']' ) {
+            --depth;
+        } else if( c == '/' || c == '\'' ) {
+            return "comment or single quote outside a string";
+        }
+    }
+    return std::string();
+}
+
 void server::on_message( std::shared_ptr<client_session> session, const std::string &msg ) {
     std::cout << "[cdda-mp] recv: " << msg << std::endl;
 
@@ -740,6 +785,12 @@ void server::on_message( std::shared_ptr<client_session> session, const std::str
         session->disconnect();
 
     } else if( session->authenticated ) {
+        const std::string refused = mp_refuse_line( msg );
+        if( !refused.empty() ) {
+            mp_log( "[cdda-mp] LINE-REJECT: " + refused + " from " + session->peer + ": " +
+                    mp_json_escape( msg.substr( 0, 80 ) ) );
+            return;
+        }
         // Route action to game loop
         get_mp_queue().push( { cata_mp::mp_event::type::action, session->name, msg } );
 
