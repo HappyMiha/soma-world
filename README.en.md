@@ -86,6 +86,7 @@ Scripts in [`tools/soma-world`](tools/soma-world):
 | `install-autostart.ps1` | registers the task: no stored password, runs only while the owner is signed in, no time limit |
 | `start-server.ps1` | starts the server and supervises it: restarts it after a crash or a hang but not after a requested stop, stops a hang or a crash dialog, refuses to start while anything else uses the world's saves |
 | `stop-server.ps1` | asks the server to save the world and exit, then stops the task, the supervising loop and anything still running |
+| `release/package-release.ps1` | packs the client folder into the release archive: adds `HOW-TO-JOIN.txt` and the `README.txt` header and leaves out `data\cache`, because the game takes a cache written by another build for stale and shows a message for every file |
 
 Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
 password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
