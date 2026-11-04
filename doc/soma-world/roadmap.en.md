@@ -27,8 +27,9 @@ the way, and the order in which to remove it. File references match the fork at
 
 ### 1. Small fixes
 
-**Done:** build `9f50a6140a` (PRs #1, #2, #4) runs on the server since 4 November
-2026. What follows is what was fixed.
+**Done:** build `9f50a6140a` (PRs #1, #2, #4) went on the server on 4 November
+2026, and that evening `8352fc80c6` replaced it with a fix for names with quotes.
+What follows is what was fixed.
 
 - **Version in `--client`.** `src/main.cpp` calls `cata_mp::client_connect(...)`
   from the command line without a version, and the server rejects that client. It
@@ -46,6 +47,10 @@ the way, and the order in which to remove it. File references match the fork at
   interface (`tilecontext` is null), yet after 100 ms the client wait loop polls
   host input, which reaches for it (`src/handle_action.cpp`). Steps meant only for
   a host must be skipped.
+- **Quotes in a name.** The client put the character's name into every action
+  unescaped, and the server parsed the action outside any `try`: a double quote or
+  a backslash in a name ended the server for everyone. The client now escapes the
+  name, and the server drops a packet that does not parse (`src/mp_gamestate.cpp`).
 
 ### 2. Several sessions
 

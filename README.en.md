@@ -20,7 +20,7 @@ limit of this world.
 ## How to connect
 
 1. Download the client from
-   [SOMA World release `9f50a6140a`](https://github.com/HappyMiha/soma-world/releases/tag/soma-9f50a6140a)
+   [SOMA World release `8352fc80c6`](https://github.com/HappyMiha/soma-world/releases/tag/soma-8352fc80c6)
    (Windows x64 only for now) and unpack it. The client version must match the
    server exactly, or the server refuses the connection.
 2. Run `cataclysm-tiles.exe`. The build is unsigned, so Windows SmartScreen may
@@ -30,9 +30,9 @@ limit of this world.
 4. After the connection message press any key: the character menu opens by
    itself, and there is no need to choose `Join a session` again. Choose
    `New character`, and `Load existing character` next time.
-5. The name at the start of the bar at the bottom of the screen, `Tyesha`,
-   belongs to the host, the server's anchor character, not to you. Your own name
-   is on the character sheet (`@`).
+5. The bar at the bottom of the screen starts with `host: Tyesha`. That is the
+   host, the server's anchor character, not you. Your own name is on the character
+   sheet (`@`).
 
 Step-by-step instructions covering every window are in the archive next to
 `cataclysm-tiles.exe`, in `HOW-TO-JOIN.txt`; its source is
@@ -48,12 +48,14 @@ anything private in the game.
 
 ## What works now
 
-Checked on 4 November 2026 with build `9f50a6140a`: a scripted client passed the
-version check through `soma.lokvetia.com:64870`, entered the world, did nothing for
-90 seconds (the server did not crash), asked for a save and left; the world was
-written to disk. Joining with this build's GUI client, and from another network,
-has not been checked yet. The day before, a GUI client of the previous build,
-`7cc9d26c8e`, entered the world through the same address.
+Checked on 4 November 2026. Build `8352fc80c6`, which runs now, differs from the
+previous one, `9f50a6140a`, only by the fix for names with quotes and the `host:`
+label on the bar at the bottom of the screen. After the deploy a scripted client
+passed the version check through `soma.lokvetia.com:64870`, entered the world, did
+nothing for 90 seconds (the server did not crash), asked for a save and left; the
+world was written to disk. A resident on another PC played in the world through
+the same address for more than five hours with the `9f50a6140a` GUI client.
+Joining with the `8352fc80c6` GUI client has not been checked yet.
 
 - **Windowless server.** `cataclysm-tiles --server` loads the world and keeps time
   on its own: 1 turn = 1 second, player events are processed 10 times a second.
@@ -95,9 +97,11 @@ Start it again with `Start-ScheduledTask -TaskName 'SOMA World server'`. A
 password, if one is needed, comes from the `SOMA_WORLD_PASSWORD` environment
 variable and never enters Git.
 
-The server build is in `game\SomaWorld-9f50a6140a`. The previous one,
-`game\Cddacoop`, stays for a rollback: `install-autostart.ps1 -GameDir <folder>`,
-then `Start-ScheduledTask`. Logs are in `server-logs` next to the game build:
+The server build is in `game\SomaWorld-8352fc80c6`. The previous one,
+`game\SomaWorld-9f50a6140a`, stays for a rollback: stop the server, copy
+`save\soma` from the current build into it, then `install-autostart.ps1 -GameDir
+<folder>` and `Start-ScheduledTask`. Players then need a client of that build
+again. Logs are in `server-logs` next to the game build:
 `server-<time>.out.log` (the game) and `wrapper.log` (the supervisor). The game
 also appends to `%USERPROFILE%\cdda-mp-server.log`, which every build of the fork
 shares.
